@@ -5,7 +5,7 @@
 
 ## 0. 工程与依赖
 
-`ghpat/Cargo.toml`（bin 名 `ghpatd`，path `src/main.rs`）：
+`ghpatd/Cargo.toml`（bin 名 `ghpatd`，path `src/main.rs`）：
 
 ```toml
 [dependencies]

@@ -23,11 +23,11 @@
 #    可选：./ghpatd-linux-x86_64 start --foreground   # 前台运行（调试）
 
 # 2. 用打印出的公钥在本地加密 PAT（ghpatd 自身不把 PAT 写入磁盘、不进 argv/env）
-#    v0.0.2 起推荐直接管道，token.enc 不落盘：
+#    v0.0.2 起推荐直接管道，pat.enc 不落盘：
 age -r age1xxxxxxxx... -a pat.txt | ./ghpatd-linux-x86_64 set-token
 
 # 3. 注入 daemon（校验 /user → 通过后写入 mlock 内存页；stdin 输入，兼容 ASCII armored）
-./ghpatd-linux-x86_64 set-token < token.enc     # 仅接受 stdin，不再接受文件路径
+./ghpatd-linux-x86_64 set-token < pat.enc     # 仅接受 stdin，不再接受文件路径
 
 # 4. 日常使用
 ./ghpatd-linux-x86_64 status                    # 运行状态与指纹
@@ -54,7 +54,7 @@ git -c credential.helper='!./ghpatd-linux-x86_64 cred-helper' clone https://gith
 
 ### 功能变更
 - **N-1** 项目改名 `gh-pat-daemon`，命令名 `ghpatd`；socket/log 文件名同步（breaking）。
-- **N-2** `set-token` 仅接受 stdin，移除文件路径参数（token.enc 不再需要落盘）。
+- **N-2** `set-token` 仅接受 stdin，移除文件路径参数（pat.enc 不再需要落盘）。
 - **N-3** 注入密文兼容 ASCII armored（`age -a` / `-----BEGIN AGE ENCRYPTED FILE-----`）
   与 base64 二进制两种编码，自动识别。
 - **N-4** 审计日志统一为 `<ISO8601 UTC> action=<动作> result=<结果> peer_pid=<对端>` 格式；
@@ -98,10 +98,10 @@ git -c credential.helper='!./ghpatd-linux-x86_64 cred-helper' clone https://gith
 
 ## 源码与构建
 
-完整 Rust 工程位于本仓库 `ghpat/` 目录（11 个模块，约 2700 行）：
+完整 Rust 工程位于本仓库 `ghpatd/` 目录（11 个模块，约 2700 行）：
 
 ```bash
-cd ghpat
+cd ghpatd
 cargo build --release        # 或 cross build --release --target x86_64-unknown-linux-musl
 cargo test                   # 9 个单元测试
 bash run_tests.sh ./target/release/ghpatd   # 37 个集成用例
