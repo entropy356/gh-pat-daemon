@@ -45,8 +45,9 @@ PAT 全生命周期不落盘、不进 argv/env，仅存于 daemon 进程的 mloc
 
 数据流要点：
 
-1. **注入链**：daemon 启动时进程内生成 age 密钥对 → 私钥 32 原始字节写入敏感页，公钥打印给用户 →
-   用户在本机用 `age -r <pubkey>` 加密 PAT → 密文经 stdin（client）→ base64（IPC）→ daemon 解密 →
+1. **注入链**：云端智能体启动 daemon 时进程内生成 age 密钥对 → 私钥 32 原始字节写入敏感页，公钥打印并展示给用户 →
+   用户在本地终端用 `age -r <pubkey> -a` 加密 PAT，手动复制 ASCII armored 密文发送给云端智能体 →
+   智能体将密文经 stdin（heredoc，不落盘）传入 `set-token` → base64（IPC）→ daemon 解密 →
    `GET /user` 验证 → 写入敏感页。
 2. **取用链**：cred-helper / wrap 经 IPC `get_pat` 取回 PAT；`api/repo/pr/issue/auth` 子命令
    把 gh 风格参数透传给 daemon，由 daemon 内部执行 REST 调用（PAT 不出 daemon）。

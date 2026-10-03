@@ -15,29 +15,63 @@
 | `run_tests.sh` | 集成自测脚本（`bash run_tests.sh ./ghpatd-linux-x86_64`，37 用例） |
 | `SHA256SUMS` | 全部产物校验和 |
 
-## 快速上手
+## 快速上手（云端 Agent 协作流程）
+
+`ghpatd` 专为云端 AI 智能体设计：PAT 明文只存在于用户本地终端，通过一次性 `age` 公钥加密为文本密文后，手动复制发送给云端 Agent 注入内存。
+
+### 1. 【云端 Agent】启动 daemon 并获取公钥
 
 ```bash
-# 1. 启动 daemon（fork 子进程；打印 age 公钥）
 ./ghpatd-linux-x86_64 start
-#    可选：./ghpatd-linux-x86_64 start --foreground   # 前台运行（调试）
-#    可选署名：start --user-name "AI Agent" --user-email agent@example.com
-#              wrap 会在 git 提交时自动注入 user.name/user.email
+# 输出示例：
+# age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# daemon 已启动 (pid 1234, socket: /tmp/ghpatd-1000/ghpatd.sock)
+# 状态: READY（等待 token 注入）
 
-# 2. 用打印出的公钥在本地加密 PAT（ghpatd 自身不把 PAT 写入磁盘、不进 argv/env）
-#    v0.0.2 起推荐直接管道，pat.enc 不落盘：
-age -r age1xxxxxxxx... -a pat.txt | ./ghpatd-linux-x86_64 set-token
+# 可选：./ghpatd-linux-x86_64 start --foreground   # 前台运行（调试）
+# 可选署名：./ghpatd-linux-x86_64 start --user-name "AI Agent" --user-email agent@example.com
+#           wrap 会在 git 提交时自动注入 user.name / user.email
+```
 
-# 3. 注入 daemon（校验 /user → 通过后写入 mlock 内存页；stdin 输入，兼容 ASCII armored）
-./ghpatd-linux-x86_64 set-token < pat.enc     # 仅接受 stdin，不再接受文件路径
+### 2. 【用户本地】加密 PAT 并复制密文发送给云端 Agent
 
-# 4. 日常使用
-./ghpatd-linux-x86_64 status                    # 运行状态与指纹
-./ghpatd-linux-x86_64 wrap -- git pull          # 以注入凭据执行任意命令
+在本地终端使用步骤 1 打印出的 `age1...` 公钥加密 PAT（加 `-a` 输出可复制的 ASCII armored 文本）：
+
+```bash
+# 方式 A：标准输入直接加密（本地不落盘明文文件）
+printf '%s' "ghp_xxxxxxxxxxxxxxxxxxxx" | age -r age1xxxxxxxx... -a
+
+# 方式 B：从已有文件加密输出到终端
+age -r age1xxxxxxxx... -a pat.txt
+```
+
+将终端打印出的整段 `-----BEGIN AGE ENCRYPTED FILE----- ... -----END AGE ENCRYPTED FILE-----` 密文复制，直接粘贴发送给云端 Agent。
+
+### 3. 【云端 Agent】通过 stdin 注入密文（不落盘）
+
+云端 Agent 将收到的 ASCII armored 密文通过 heredoc 直接喂给 `set-token`（无需写入磁盘文件；daemon 校验 `GET /user` 通过后写入 `mlock` 内存页）：
+
+```bash
+./ghpatd-linux-x86_64 set-token <<'EOF'
+-----BEGIN AGE ENCRYPTED FILE-----
+age-encryption.org/v1
+-> X25519 ...
+...
+-----END AGE ENCRYPTED FILE-----
+EOF
+```
+
+### 4. 【云端 Agent】日常使用与销毁
+
+```bash
+./ghpatd-linux-x86_64 status                    # 运行状态与指纹（ARMED）
+./ghpatd-linux-x86_64 wrap -- git pull          # 以注入凭据执行任意 git 命令
+./ghpatd-linux-x86_64 wrap -- git push
 ./ghpatd-linux-x86_64 api repos/o/r/issues      # GitHub API 透传
-./ghpatd-linux-x86_64 stop                      # 销毁（zeroize 整页 + unlink socket）
+./ghpatd-linux-x86_64 pr list                   # 等价 gh 子命令（repo/pr/issue/auth）
+./ghpatd-linux-x86_64 stop                      # 任务结束销毁（zeroize 整页 + unlink socket）
 
-# 5. git cred-helper（免 daemon 手工注入）
+# 也可单独挂载为 git cred-helper：
 git -c credential.helper='!./ghpatd-linux-x86_64 cred-helper' clone https://github.com/o/r
 ```
 

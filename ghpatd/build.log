@@ -1,0 +1,109 @@
+   Compiling thiserror-impl v1.0.69
+   Compiling tinystr v0.8.4
+   Compiling futures-sink v0.3.34
+   Compiling typenum v1.20.1
+   Compiling hybrid-array v0.4.15
+   Compiling futures-channel v0.3.34
+   Compiling unic-langid-impl v0.9.6
+   Compiling getrandom v0.2.17
+   Compiling cfg-if v1.0.5
+   Compiling unic-langid v0.9.6
+   Compiling futures-macro v0.3.34
+   Compiling itoa v1.0.18
+   Compiling futures-io v0.3.34
+   Compiling futures-task v0.3.34
+   Compiling bytes v1.12.1
+   Compiling slab v0.4.12
+   Compiling parking_lot_core v0.9.12
+   Compiling futures-util v0.3.34
+   Compiling crypto-common v0.2.2
+   Compiling block-buffer v0.12.1
+   Compiling thiserror v1.0.69
+   Compiling find-msvc-tools v0.1.14
+   Compiling const-oid v0.10.2
+   Compiling unicase v2.9.0
+   Compiling shlex v2.0.1
+   Compiling once_cell v1.21.4
+   Compiling mime_guess v2.0.5
+   Compiling cc v1.5.1
+   Compiling digest v0.11.3
+   Compiling errno v0.3.14
+   Compiling litemap v0.8.3
+   Compiling cpufeatures v0.2.17
+   Compiling writeable v0.6.4
+   Compiling same-file v1.0.6
+   Compiling cpufeatures v0.3.1
+   Compiling sha2 v0.11.0
+   Compiling walkdir v2.5.0
+   Compiling icu_locale_core v2.3.0
+   Compiling signal-hook-registry v1.4.8
+   Compiling ring v0.17.14
+   Compiling block-buffer v0.10.4
+   Compiling potential_utf v0.1.6
+   Compiling zerotrie v0.2.5
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.3
+   Compiling tokio-macros v2.7.2
+   Compiling mime v0.3.17
+   Compiling utf8_iter v1.0.4
+   Compiling rustversion v1.0.23
+   Compiling icu_normalizer_data v2.3.0
+   Compiling smallvec v1.16.2
+   Compiling icu_properties_data v2.3.0
+   Compiling serde_core v1.0.229
+   Compiling icu_collections v2.3.0
+   Compiling tokio v1.53.1
+   Compiling icu_provider v2.3.1
+   Compiling digest v0.10.7
+warning: ring@0.17.14: Compiler family detection failed due to error: ToolNotFound: failed to find tool "x86_64-linux-musl-gcc": No such file or directory (os error 2)
+warning: ring@0.17.14: Compiler family detection failed due to error: ToolNotFound: failed to find tool "x86_64-linux-musl-gcc": No such file or directory (os error 2)
+error: failed to run custom build command for `ring v0.17.14`
+
+Caused by:
+  process didn't exit successfully: `/run/csi/mount-root/oss/79518b664a0b4bc7c1cbf160bcbd163a/agent-model/6ac00d388da8d6ed48b9dc9c/tmp/ghpatd-repo/ghpatd/target/release/build/ring-473edcff310cda92/build-script-build` (exit status: 1)
+  --- stdout
+  cargo:rerun-if-env-changed=CARGO_MANIFEST_DIR
+  cargo:rerun-if-env-changed=CARGO_PKG_NAME
+  cargo:rerun-if-env-changed=CARGO_PKG_VERSION_MAJOR
+  cargo:rerun-if-env-changed=CARGO_PKG_VERSION_MINOR
+  cargo:rerun-if-env-changed=CARGO_PKG_VERSION_PATCH
+  cargo:rerun-if-env-changed=CARGO_PKG_VERSION_PRE
+  cargo:rerun-if-env-changed=CARGO_MANIFEST_LINKS
+  cargo:rerun-if-env-changed=RING_PREGENERATE_ASM
+  cargo:rerun-if-env-changed=OUT_DIR
+  cargo:rerun-if-env-changed=CARGO_CFG_TARGET_ARCH
+  cargo:rerun-if-env-changed=CARGO_CFG_TARGET_OS
+  cargo:rerun-if-env-changed=CARGO_CFG_TARGET_ENV
+  cargo:rerun-if-env-changed=CARGO_CFG_TARGET_ENDIAN
+  cargo:rerun-if-env-changed=CC_x86_64-unknown-linux-musl
+  CC_x86_64-unknown-linux-musl = None
+  cargo:rerun-if-env-changed=CC_x86_64_unknown_linux_musl
+  CC_x86_64_unknown_linux_musl = None
+  cargo:rerun-if-env-changed=TARGET_CC
+  TARGET_CC = None
+  cargo:rerun-if-env-changed=CC
+  CC = None
+  cargo:rerun-if-env-changed=CROSS_COMPILE
+  CROSS_COMPILE = None
+  PATH = Some(/home/z/.cargo/bin:/home/z/.venv/bin:/home/z/.cargo/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games)
+  cargo:rerun-if-env-changed=CC_ENABLE_DEBUG_OUTPUT
+  cargo:warning=Compiler family detection failed due to error: ToolNotFound: failed to find tool "x86_64-linux-musl-gcc": No such file or directory (os error 2)
+  cargo:rerun-if-env-changed=CRATE_CC_NO_DEFAULTS
+  CRATE_CC_NO_DEFAULTS = None
+  cargo:rerun-if-env-changed=CFLAGS
+  CFLAGS = None
+  cargo:rerun-if-env-changed=TARGET_CFLAGS
+  TARGET_CFLAGS = None
+  cargo:rerun-if-env-changed=CFLAGS_x86_64_unknown_linux_musl
+  CFLAGS_x86_64_unknown_linux_musl = None
+  cargo:rerun-if-env-changed=CFLAGS_x86_64-unknown-linux-musl
+  CFLAGS_x86_64-unknown-linux-musl = None
+  cargo:warning=Compiler family detection failed due to error: ToolNotFound: failed to find tool "x86_64-linux-musl-gcc": No such file or directory (os error 2)
+
+  --- stderr
+
+
+  error occurred in cc-rs: failed to find tool "x86_64-linux-musl-gcc": No such file or directory (os error 2)
+
+
+warning: build failed, waiting for other jobs to finish...

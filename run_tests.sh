@@ -143,7 +143,6 @@ case "$ST" in *READY*) ok "超长拒绝后 daemon 仍 READY";; *) bad "超长后
 
 echo "== 13. N-3: ASCII armored 兼容 =="
 if command -v age >/dev/null; then
-  PUB="$("$BIN" --sock "$SOCK" pubkey | tail -1)"
   age -r "$PUB" -a -o "$TMP/token.armored" "$TMP/pat.txt"
   RES="$("$BIN" --sock "$SOCK" set-token < "$TMP/token.armored" 2>&1)"
   case "$RES" in *TOKEN_INVALID*|*"401"*) ok "armored 密文解密成功并走 401 校验";; *) bad "armored: $RES";; esac
