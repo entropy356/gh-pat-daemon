@@ -19,17 +19,26 @@
 
 `ghpatd` 专为云端 AI 智能体设计：PAT 明文只存在于用户本地终端，通过一次性 `age` 公钥加密为文本密文后，手动复制发送给云端 Agent 注入内存。
 
+### 0. 安装到 `$PATH`（以 `ghpatd` 命令直接调用）
+
+将静态二进制安装为系统路径下的 `ghpatd`（无 root 权限时可放入 `~/.local/bin/ghpatd`）：
+
+```bash
+install -m 0755 ./ghpatd-linux-x86_64 /usr/local/bin/ghpatd
+# 若需 sudo：sudo install -m 0755 ./ghpatd-linux-x86_64 /usr/local/bin/ghpatd
+```
+
 ### 1. 【云端 Agent】启动 daemon 并获取公钥
 
 ```bash
-./ghpatd-linux-x86_64 start
+ghpatd start
 # 输出示例：
 # age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 # daemon 已启动 (pid 1234, socket: /tmp/ghpatd-1000/ghpatd.sock)
 # 状态: READY（等待 token 注入）
 
-# 可选：./ghpatd-linux-x86_64 start --foreground   # 前台运行（调试）
-# 可选署名：./ghpatd-linux-x86_64 start --user-name "AI Agent" --user-email agent@example.com
+# 可选：ghpatd start --foreground   # 前台运行（调试）
+# 可选署名：ghpatd start --user-name "AI Agent" --user-email agent@example.com
 #           wrap 会在 git 提交时自动注入 user.name / user.email
 ```
 
@@ -52,7 +61,7 @@ age -r age1xxxxxxxx... -a pat.txt
 云端 Agent 将收到的 ASCII armored 密文通过 heredoc 直接喂给 `set-token`（无需写入磁盘文件；daemon 校验 `GET /user` 通过后写入 `mlock` 内存页）：
 
 ```bash
-./ghpatd-linux-x86_64 set-token <<'EOF'
+ghpatd set-token <<'EOF'
 -----BEGIN AGE ENCRYPTED FILE-----
 age-encryption.org/v1
 -> X25519 ...
@@ -64,15 +73,15 @@ EOF
 ### 4. 【云端 Agent】日常使用与销毁
 
 ```bash
-./ghpatd-linux-x86_64 status                    # 运行状态与指纹（ARMED）
-./ghpatd-linux-x86_64 wrap -- git pull          # 以注入凭据执行任意 git 命令
-./ghpatd-linux-x86_64 wrap -- git push
-./ghpatd-linux-x86_64 api repos/o/r/issues      # GitHub API 透传
-./ghpatd-linux-x86_64 pr list                   # 等价 gh 子命令（repo/pr/issue/auth）
-./ghpatd-linux-x86_64 stop                      # 任务结束销毁（zeroize 整页 + unlink socket）
+ghpatd status                    # 运行状态与指纹（ARMED）
+ghpatd wrap -- git pull          # 以注入凭据执行任意 git 命令
+ghpatd wrap -- git push
+ghpatd api repos/o/r/issues      # GitHub API 透传
+ghpatd pr list                   # 等价 gh 子命令（repo/pr/issue/auth）
+ghpatd stop                      # 任务结束销毁（zeroize 整页 + unlink socket）
 
 # 也可单独挂载为 git cred-helper：
-git -c credential.helper='!./ghpatd-linux-x86_64 cred-helper' clone https://github.com/o/r
+git -c credential.helper='!ghpatd cred-helper' clone https://github.com/o/r
 ```
 
 ## v0.0.2 变更记录
