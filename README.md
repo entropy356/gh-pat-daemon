@@ -86,6 +86,16 @@ git -c credential.helper='!./ghpatd-linux-x86_64 cred-helper' clone https://gith
 9. release 构建使用 `lto="thin"`（规格建议 fat，沙箱 2 核 + 网络文件系统无法承受 fat
    链接）。
 
+## 文档（复刻级）
+
+| 文档 | 内容 |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 总体架构、IPC 协议、敏感页内存模型、生命周期、威胁模型 |
+| [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | 逐模块实现规格（数据结构、函数签名、逐条行为规则、全部常量与算法） |
+| [docs/REPLICATION.md](docs/REPLICATION.md) | 复刻步骤（12 步依赖顺序）、验收清单、集成测试规格、安全自查 |
+
+三份文档合起来可在不参考源码的前提下完整复刻全部代码。
+
 ## 源码与构建
 
 完整 Rust 工程位于本仓库 `ghpat/` 目录（11 个模块，约 2700 行）：
