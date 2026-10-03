@@ -409,19 +409,23 @@ async fn write_outbound(
             line.push('\n');
             Zeroizing::new(line.into_bytes())
         }
-        Outbound::Creds { id, password } => {
-            // 凭据响应手工拼接：不经过 serde 的中间 String，避免额外堆副本
-            let mut line = Zeroizing::new(Vec::with_capacity(96 + password.len()));
-            line.extend_from_slice(
-                format!("{{\"id\":{id},\"ok\":true,\"payload\":{{\"username\":\"x-access-token\",\"password\":\"").as_bytes(),
-            );
-            push_json_escaped(&mut line, password);
-            line.extend_from_slice(b"\"}}}\n");
-            line
-        }
+        Outbound::Creds { id, password } => build_creds_line(*id, password),
     };
     writer.write_all(&buf).await?;
     writer.flush().await
+}
+
+/// P1-3：凭据响应手工拼接（不经过 serde 的中间 String，避免额外堆副本）。
+/// v0.0.2 修复：闭合括号应为 `"}}`（password 字符串 + payload + root），原实现多写一个
+/// `}` 导致 JSON 非法、cred-helper 解析失败静默输出空（git 退化为交互提示）。
+fn build_creds_line(id: u64, password: &str) -> Zeroizing<Vec<u8>> {
+    let mut line = Zeroizing::new(Vec::with_capacity(96 + password.len()));
+    line.extend_from_slice(
+        format!("{{\"id\":{id},\"ok\":true,\"payload\":{{\"username\":\"x-access-token\",\"password\":\"").as_bytes(),
+    );
+    push_json_escaped(&mut line, password);
+    line.extend_from_slice(b"\"}}\n");
+    line
 }
 
 /// 把 s 以 JSON 字符串转义后追加进 buf（P1-3：直接写入目标缓冲，不产生中间副本）
@@ -745,6 +749,22 @@ mod tests {
         let mut buf = Vec::new();
         push_json_escaped(&mut buf, "ghp_plain123");
         assert_eq!(String::from_utf8(buf).unwrap(), "ghp_plain123");
+    }
+
+    /// v0.0.2 修复回归：Creds 响应必须是单行合法 JSON（多一个 `}` 曾致 helper 静默失败）
+    #[test]
+    fn creds_line_is_valid_json() {
+        for pw in ["github_pat_plain123", "a\"b\\c\nd\te", "中文🔒"] {
+            let line = build_creds_line(7, pw);
+            let text = String::from_utf8(line.to_vec()).unwrap();
+            assert!(text.ends_with('\n') && text.lines().count() == 1);
+            let v: serde_json::Value = serde_json::from_str(text.trim_end())
+                .unwrap_or_else(|e| panic!("invalid JSON for {pw:?}: {e}"));
+            assert_eq!(v["id"], 7);
+            assert_eq!(v["ok"], true);
+            assert_eq!(v["payload"]["username"], "x-access-token");
+            assert_eq!(v["payload"]["password"], pw);
+        }
     }
 
     /// N-4：ISO8601 转换
