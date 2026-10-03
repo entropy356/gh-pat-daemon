@@ -1,34 +1,27 @@
-# ghpatd v0.0.2 — 面向 AI 智能体的 GitHub PAT 内存代理
+# ghpatd — 面向云端 AI 智能体的 GitHub PAT 内存代理
 
-单二进制实现（Rust，x86_64 Linux，musl 静态链接），按规格文档完整实现三形态：
-`client` / `daemon(--daemon-internal)` / `cred-helper`。
+单二进制实现（Rust，`x86_64-unknown-linux-musl` 静态链接），在一个可执行文件内通过 `argv` 分叉实现 `client`、`daemon (--daemon-internal)` 与 `cred-helper` 三种形态。PAT 全生命周期仅驻留于 daemon 进程的 `mlock` 内存页，用后即焚，不落盘、不进命令行参数与环境变量。
 
-> **v0.0.2 为 breaking 版本**：项目改名 `gh-pat-daemon`，命令名 `ghpat` → `ghpatd`，
-> socket 路径同步改为 `${XDG_RUNTIME_DIR:-/tmp/ghpatd-$UID}/ghpatd.sock`。
-> 升级后旧 `ghpat` 二进制与旧 socket 不再互通，需以 `ghpatd` 重新 start/set-token。
+---
 
-## 产物
+## 一、使用说明
 
-| 文件 | 说明 |
-|---|---|
-| `ghpatd-linux-x86_64` | 主二进制，static-pie linked，stripped |
-| `run_tests.sh` | 集成自测脚本（`bash run_tests.sh ./ghpatd-linux-x86_64`，37 用例） |
-| `SHA256SUMS` | 全部产物校验和 |
+### 1. 安装
 
-## 快速上手（云端 Agent 协作流程）
-
-`ghpatd` 专为云端 AI 智能体设计：PAT 明文只存在于用户本地终端，通过一次性 `age` 公钥加密为文本密文后，手动复制发送给云端 Agent 注入内存。
-
-### 0. 安装到 `$PATH`（以 `ghpatd` 命令直接调用）
-
-将静态二进制安装为系统路径下的 `ghpatd`（无 root 权限时可放入 `~/.local/bin/ghpatd`）：
+将静态二进制 `ghpatd-linux-x86_64` 安装到 `$PATH` 下的 `ghpatd`：
 
 ```bash
+sha256sum -c SHA256SUMS
 install -m 0755 ./ghpatd-linux-x86_64 /usr/local/bin/ghpatd
-# 若需 sudo：sudo install -m 0755 ./ghpatd-linux-x86_64 /usr/local/bin/ghpatd
+# 若当前用户无 /usr/local/bin 写权限：
+sudo install -m 0755 ./ghpatd-linux-x86_64 /usr/local/bin/ghpatd
 ```
 
-### 1. 【云端 Agent】启动 daemon 并获取公钥
+### 2. 云端 Agent 协作注入流程（手动复制密文）
+
+#### 第一步：【云端 Agent】启动 daemon 并获取一次性公钥
+
+每次启动重新在内存内生成 `age` 密钥对（私钥永不落盘、不跨运行复用）：
 
 ```bash
 ghpatd start
@@ -37,28 +30,29 @@ ghpatd start
 # daemon 已启动 (pid 1234, socket: /tmp/ghpatd-1000/ghpatd.sock)
 # 状态: READY（等待 token 注入）
 
-# 可选：ghpatd start --foreground   # 前台运行（调试）
-# 可选署名：ghpatd start --user-name "AI Agent" --user-email agent@example.com
-#           wrap 会在 git 提交时自动注入 user.name / user.email
+# 可选配置 git 提交署名（存于 daemon 内存，由 wrap 自动注入）：
+ghpatd start --user-name "AI Agent" --user-email "agent@example.com"
 ```
 
-### 2. 【用户本地】加密 PAT 并复制密文发送给云端 Agent
+云端 Agent 将输出的 `age1...` 公钥发给用户。
 
-在本地终端使用步骤 1 打印出的 `age1...` 公钥加密 PAT（加 `-a` 输出可复制的 ASCII armored 文本）：
+#### 第二步：【用户本地】用公钥加密 PAT 并复制密文给 Agent
+
+用户在**本地终端**使用该公钥将 PAT 加密为 ASCII armored 文本（PAT 明文仅留在本地）：
 
 ```bash
 # 方式 A：标准输入直接加密（本地不落盘明文文件）
 printf '%s' "ghp_xxxxxxxxxxxxxxxxxxxx" | age -r age1xxxxxxxx... -a
 
-# 方式 B：从已有文件加密输出到终端
+# 方式 B：从本地已有文件加密输出到终端
 age -r age1xxxxxxxx... -a pat.txt
 ```
 
-将终端打印出的整段 `-----BEGIN AGE ENCRYPTED FILE----- ... -----END AGE ENCRYPTED FILE-----` 密文复制，直接粘贴发送给云端 Agent。
+复制终端输出的整段 `-----BEGIN AGE ENCRYPTED FILE----- ... -----END AGE ENCRYPTED FILE-----` 文本密文，粘贴发送给云端 Agent。
 
-### 3. 【云端 Agent】通过 stdin 注入密文（不落盘）
+#### 第三步：【云端 Agent】经 stdin 注入密文（不落盘）
 
-云端 Agent 将收到的 ASCII armored 密文通过 heredoc 直接喂给 `set-token`（无需写入磁盘文件；daemon 校验 `GET /user` 通过后写入 `mlock` 内存页）：
+云端 Agent 将收到的密文通过 heredoc 直接喂给 `set-token`（daemon 在内存内解密并调用 `GET /user` 校验，通过后写入 `mlock` 敏感页，状态变为 `ARMED`；更换 PAT 时再次执行 `set-token` 即可）：
 
 ```bash
 ghpatd set-token <<'EOF'
@@ -70,90 +64,65 @@ age-encryption.org/v1
 EOF
 ```
 
-### 4. 【云端 Agent】日常使用与销毁
+### 3. 日常命令
 
 ```bash
-ghpatd status                    # 运行状态与指纹（ARMED）
-ghpatd wrap -- git pull          # 以注入凭据执行任意 git 命令
-ghpatd wrap -- git push
-ghpatd api repos/o/r/issues      # GitHub API 透传
-ghpatd pr list                   # 等价 gh 子命令（repo/pr/issue/auth）
-ghpatd stop                      # 任务结束销毁（zeroize 整页 + unlink socket）
+# 状态与公钥
+ghpatd status                                    # 查看运行状态与 PAT 指纹（READY / ARMED）
+ghpatd pubkey                                    # 打印当前 daemon 的 age 公钥
+ghpatd auth status                               # 校验当前 token 对应的 GitHub 账号与 scopes
 
-# 也可单独挂载为 git cred-helper：
-git -c credential.helper='!ghpatd cred-helper' clone https://github.com/o/r
+# Git 操作（自动注入 HTTPS credential helper 及可选 user.name / user.email）
+ghpatd wrap -- git clone https://github.com/owner/repo.git
+ghpatd wrap -- git pull
+ghpatd wrap -- git commit -m "feat: update"
+ghpatd wrap -- git push origin main
+
+# 内置 gh 子命令（不依赖 GitHub CLI，由 daemon 直接调用 GitHub REST API）
+ghpatd repo view [owner/repo]
+ghpatd repo list --limit 30
+ghpatd pr list [--state open] [--limit 30] [--json] [--jq <EXPR>]
+ghpatd pr view <number> [--json] [--jq <EXPR>]
+ghpatd pr create --title "..." --head <branch> --base main [--body "..."]
+ghpatd pr merge <number> [--merge|--squash|--rebase]
+ghpatd issue list [--state open] [--limit 30] [--json] [--jq <EXPR>]
+ghpatd issue view <number> [--json] [--jq <EXPR>]
+ghpatd issue create --title "..." [--body "..."]
+ghpatd api repos/owner/repo/issues [--method GET] [--field k=v] [--jq <EXPR>]
+
+# 销毁退出（volatile 写零整页 mlock 内存 + unlink socket）
+ghpatd stop
 ```
 
-## v0.0.2 变更记录
+---
 
-### 缺陷修复
-- **P0-1** shutdown/stop 响应竞态：client 在响应写回前断开时，daemon 此前会跳过销毁
-  （红队实测可复现：socket 残留、敏感页未清）。现改为响应 best-effort 写回，
-  无论写回成败必执行 zeroize + unlink + exit；新增竞态回归用例。
+## 二、安全边界
 
-### 加固（威胁模型 §8 不变）
-- **P1-1** 连接读空闲超时 10s：异常客户端不再长期占用连接；仅关当前连接，daemon 不受影响。
-- **P1-2** 请求行长上限 64KB：超长请求拒绝并关闭连接、记审计，防内存耗尽。
-- **P1-3** get_pat 响应序列化改为手工拼接 + `Zeroizing` 缓冲，写出后立即清零，
-  收缩 daemon 侧 PAT 堆上瞬态副本（`cmd_gh` 经第三方 HTTP 库的路径无法保证，见已知限制）。
+### 1. 防护保证（威胁模型内）
 
-### 功能变更
-- **N-1** 项目改名 `gh-pat-daemon`，命令名 `ghpatd`；socket/log 文件名同步（breaking）。
-- **N-2** `set-token` 仅接受 stdin，移除文件路径参数（pat.enc 不再需要落盘）。
-- **N-3** 注入密文兼容 ASCII armored（`age -a` / `-----BEGIN AGE ENCRYPTED FILE-----`）
-  与 base64 二进制两种编码，自动识别。
-- **N-4** 审计日志统一为 `<ISO8601 UTC> action=<动作> result=<结果> peer_pid=<对端>` 格式；
-  daemon 启动、token 注入、get_pat、shutdown、读超时、超长拒绝等事件全覆盖；日志无 PAT 明文。
+- **用后即焚、零落盘**：`age` 私钥与 PAT 仅驻留于 daemon 进程的单页 4KiB `mmap(MAP_PRIVATE|MAP_ANONYMOUS)` + `mlock` + `MADV_DONTDUMP` 内存页；`set-token` 仅从 `stdin` 读取密文，任何情况下不落盘、不进命令行参数（`argv`）与环境变量（`env`）。
+- **禁 Core Dump 与非特权附加**：启动时最先执行 `prctl(PR_SET_DUMPABLE, 0)`，阻止产生 core dump 及无 `CAP_SYS_PTRACE` 的进程 `ptrace`。
+- **跨 UID 隔离**：`umask(0o077)` 先于 `bind`，确保 `ghpatd.sock` 与 `ghpatd.log` 创建即 `0600`、运行目录 `0700`；accept 后通过 `SO_PEERCRED` 校验连接方 UID，跨 UID 进程不可读取 PAT、不可注入命令。
+- **瞬态副本收敛与原子替换**：IPC `get_pat` 响应采用手工 JSON 拼接 + `Zeroizing` 缓冲写出即清零；更换 PAT 时原地 `write_volatile` 抹除旧值，若新密文解密或 `GET /user` 校验失败则完全保留原状态；`stop`/`shutdown` 即使客户端提前断开也必完成清零与销毁。
+- **日志零明文**：审计日志仅记录脱敏指纹（如 `ghp_…9xYz` / `github_pat_…9xYz`），任何情况下不包含 PAT 明文。
 
-### 测试
-- 单元测试 5 → 9（新增 destroy 错误路径、armor 剥离、JSON 转义、ISO8601 转换）。
-- 集成测试 23 → 37（新增：shutdown 竞态回归、读空闲超时、行长上限、文件参数移除、
-  审计日志断言、PAT 明文泄漏检查）。
+### 2. 边界与已知限制
 
-## 已知限制
+- **同 UID 进程视为授信边界内**：云端 Agent 与 `ghpatd` 运行在同一 UID 下，允许其通过子命令使用凭据或结束进程；协议层不额外鉴权同 UID 的 `cred-helper get` / `shutdown` 调用（防止无意落盘与环境残留泄露，而非对抗同 UID 恶意主动窃取）。
+- **宿主进程与第三方 HTTP 库内存**：`wrap` 场景下凭据按 git credential 协议交付给本机 `git` 进程（用户名固定 `x-access-token`）；内置 `gh` 子命令经 `reqwest` 发起 HTTPS 请求时，第三方库内部瞬态缓冲无法保证 `zeroize`。
+- **仅限 GitHub HTTPS**：仅向 `https://github.com` 与 `https://www.github.com` 提供凭据，不支持 SSH remote。
+- **强制杀死（`SIGKILL`）**：进程被 `kill -9` 强制终止时无法执行用户态钩子，由操作系统内核直接回收 `mlock` 匿名内存页；下次 `ghpatd start` 会自动探测并清理残留 socket。
 
-1. **同 UID 进程可取回 PAT**（规格 §8 威胁模型内）：daemon 不隐藏内存、不混淆 IPC、
-   `--daemon-internal` 可被同 UID 进程直接调用。`/proc/<pid>/mem` 读取与 restat 反查
-   防护超出范围。本补丁的 P1 系列均为模型内收敛，不改变该边界。
-2. **shutdown 无认证**（v0.0.2 决策，维持规格 §8）：同 UID 本可 `get_pat`，单独保护
-   shutdown 收益有限；stop 前请确认。
-3. **get_pat 返回真实 PAT**：cred-helper 与 `wrap` 场景下凭据进入 git/目标命令进程内存，
-   依赖宿主进程自身纪律。
-4. **PAT 堆副本不能完全消除**：P1-3 清零 daemon 自有缓冲；`cmd_gh` 请求头经 reqwest
-   内部缓冲，无法保证 zeroize。
-5. **GitHub token 中途失效**：401 不自动清零（保留现场便于诊断），需 `stop` 或重新注入。
-6. **多用户并发**：仅支持单 UID；无第二 UID 的双用户隔离测试环境。
-7. **daemon 启动时无父进程校验**：`--daemon-internal` 理论上可被同 UID 进程直接调用
-   （同第 1 条边界）。
-8. 与规格的偏差（均已在开工说明中记录）：IPC 增加 `pubkey` 命令；cred-helper
-   兼容 `argv[1]==get` 与 `argv[2]==get` 两种布局；wrap 的 `GIT_CONFIG_COUNT` 采用累加偏移
-   以兼容嵌套 wrap。
-9. release 构建使用 `lto="thin"`（规格建议 fat，沙箱 2 核 + 网络文件系统无法承受 fat
-   链接）。
+---
 
-## 文档（复刻级）
+## 三、文档与产物索引
 
-| 文档 | 内容 |
+| 文件 | 说明 |
 |---|---|
+| `ghpatd-linux-x86_64` | Linux x86_64 静态链接二进制（`musl`，`static-pie linked`，`stripped`） |
+| `run_tests.sh` | 集成自测脚本（`bash run_tests.sh ./ghpatd-linux-x86_64`） |
+| `SHA256SUMS` | 发布产物 SHA-256 校验和 |
+| [docs/REQ.md](docs/REQ.md) | 原始需求说明 |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 总体架构、IPC 协议、敏感页内存模型、生命周期、威胁模型 |
-| [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | 逐模块实现规格（数据结构、函数签名、逐条行为规则、全部常量与算法） |
-| [docs/REPLICATION.md](docs/REPLICATION.md) | 复刻步骤（12 步依赖顺序）、验收清单、集成测试规格、安全自查 |
-
-三份文档合起来可在不参考源码的前提下完整复刻全部代码。
-
-## 源码与构建
-
-完整 Rust 工程位于本仓库 `ghpatd/` 目录（11 个模块，约 2700 行）：
-
-```bash
-cd ghpatd
-cargo build --release        # 或 cross build --release --target x86_64-unknown-linux-musl
-cargo test                   # 9 个单元测试
-bash run_tests.sh ./target/release/ghpatd   # 37 个集成用例
-```
-
-- 模块划分：`page.rs`（mlock 敏感页）/ `agekey.rs`（age 密钥与加解密）/ `daemon.rs`（IPC 与
-  生命周期）/ `client.rs` / `gh.rs`（gh 等价命令与 REST）/ `cred.rs` + `wrap.rs`（cred-helper
-  与 wrap）/ `jq.rs` / `ipc.rs` / `err.rs` / `main.rs`（形态分叉）
-- Cargo.toml 依赖与规格 §10 一致，另加 bech32 0.9 用于 age 密钥原始字节与页缓冲的互转；
-  v0.0.2 起 tokio 启用 `time` feature（读空闲超时）
+| [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | 逐模块实现规格（数据结构、函数签名、行为规则、常量与算法） |
+| [docs/REPLICATION.md](docs/REPLICATION.md) | 复刻步骤、验收清单、集成测试规格、安全自查清单 |

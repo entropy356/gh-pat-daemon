@@ -22,21 +22,36 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check if Rust rebuild is needed
+        id: check_rebuild
+        run: |
+          if [ -x ./ghpatd-linux-x86_64 ] && sha256sum -c SHA256SUMS >/dev/null 2>&1; then
+            CHANGED=$(git diff --name-only HEAD~1 HEAD -- ghpatd/ 2>/dev/null || echo "rebuild")
+            if [ -z "$CHANGED" ]; then
+              echo "needed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          echo "needed=true" >> "$GITHUB_OUTPUT"
+
       - name: Install system dependencies (musl-tools & age)
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools age file
 
       - name: Install Rust toolchain with musl target
+        if: steps.check_rebuild.outputs.needed == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-unknown-linux-musl
 
       - name: Run unit tests (A2)
+        if: steps.check_rebuild.outputs.needed == 'true'
         working-directory: ghpatd
         run: cargo test
 
       - name: Build static musl release binary (A1)
+        if: steps.check_rebuild.outputs.needed == 'true'
         working-directory: ghpatd
         env:
           RUSTFLAGS: "-D warnings"
@@ -44,7 +59,9 @@ jobs:
 
       - name: Stage release binary & verify static-pie (A4)
         run: |
-          cp ghpatd/target/x86_64-unknown-linux-musl/release/ghpatd ./ghpatd-linux-x86_64
+          if [ "${{ steps.check_rebuild.outputs.needed }}" = "true" ]; then
+            cp ghpatd/target/x86_64-unknown-linux-musl/release/ghpatd ./ghpatd-linux-x86_64
+          fi
           chmod +x ./ghpatd-linux-x86_64
           file ./ghpatd-linux-x86_64
           file ./ghpatd-linux-x86_64 | grep -E "static-pie linked|statically linked"
@@ -69,4 +86,83 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit -m "chore(release): build ghpatd-linux-x86_64 and update SHA256SUMS [skip ci]"
             git push origin HEAD:${GITHUB_REF_NAME}
+          fi
+
+      - name: Publish or update GitHub Release v0.0.2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cat <<'NOTES' > /tmp/release-notes.md
+          ## 给云端 AI Agent 的安装与使用 Prompt（一键复制发送给 Agent）
+
+          ````markdown
+          请在当前 Linux 环境中安装并使用 `ghpatd`（GitHub PAT 内存代理），按以下步骤操作：
+
+          ### 1. 下载并安装 ghpatd 到 $PATH
+          ```bash
+          curl -fsSLO https://github.com/entropy356/gh-pat-daemon/releases/download/v0.0.2/ghpatd-linux-x86_64
+          curl -fsSLO https://github.com/entropy356/gh-pat-daemon/releases/download/v0.0.2/SHA256SUMS
+          grep ghpatd-linux-x86_64 SHA256SUMS | sha256sum -c -
+          install -m 0755 ./ghpatd-linux-x86_64 /usr/local/bin/ghpatd || sudo install -m 0755 ./ghpatd-linux-x86_64 /usr/local/bin/ghpatd
+          ```
+          （若当前仓库目录已有 `./ghpatd-linux-x86_64`，直接执行 `install -m 0755 ./ghpatd-linux-x86_64 /usr/local/bin/ghpatd` 即可。）
+
+          ### 2. 启动 daemon 并把公钥发给我
+          ```bash
+          ghpatd start
+          # 如需配置 git 提交署名：
+          # ghpatd start --user-name "<Name>" --user-email "<Email>"
+          ```
+          将输出的 `age1...` 公钥发给我，并等待我在本地用 `age -r <公钥> -a` 加密 PAT 后把 ASCII armored 密文发给你。
+
+          ### 3. 收到我发来的密文后，通过 stdin 注入（严禁落盘）
+          ```bash
+          ghpatd set-token <<'EOF'
+          -----BEGIN AGE ENCRYPTED FILE-----
+          ...
+          -----END AGE ENCRYPTED FILE-----
+          EOF
+          ghpatd status
+          ```
+
+          ### 4. 日常使用与销毁
+          - 执行 git 远程操作：`ghpatd wrap -- git pull`、`ghpatd wrap -- git push`、`ghpatd wrap -- git clone https://github.com/owner/repo.git`
+          - 执行 GitHub 操作：`ghpatd auth status`、`ghpatd repo view`、`ghpatd pr list`、`ghpatd pr create ...`、`ghpatd issue list`、`ghpatd api <endpoint>`
+          - 任务全部完成后销毁内存凭据：`ghpatd stop`
+
+          ### 5. 安全铁律（必须严格遵守）
+          - **严禁尝试获取、读取、打印、记录或导出 PAT 明文**。
+          - **严禁主动调用 `ghpatd cred-helper get` 或直接向 socket 发送 `get_pat` 请求来读取 token**。
+          - **严禁向我索要 PAT 明文，也严禁将收到的密文或任何凭据写入磁盘文件、环境变量或日志**。
+          - 只能通过 `ghpatd wrap -- git ...` 或 `ghpatd <repo|pr|issue|api|auth>` 间接使用凭据。
+          ````
+
+          ---
+
+          ## 用户本地加密命令（在人类本地终端执行）
+
+          收到云端 Agent 发来的 `age1...` 公钥后，在本地终端执行以下命令并将输出的整段 `-----BEGIN AGE ENCRYPTED FILE----- ... -----END AGE ENCRYPTED FILE-----` 文本复制发送给 Agent：
+
+          ```bash
+          printf '%s' "ghp_xxxxxxxxxxxxxxxxxxxx" | age -r age1xxxxxxxx... -a
+          ```
+
+          ---
+
+          ## 产物校验和（`SHA256SUMS`）
+
+          ```text
+          2f64de0ecfaf554779cc749bb3b1e6401fe9b8419383623c23cb2186778c0595  ghpatd-linux-x86_64
+          d3b5a8e18a27e1ba0198d8df1dbdba33d24c503cab191449c73b8104364b671e  run_tests.sh
+          f5e07f976fcf1407816c63178d2e87e56cbab398eb6cee5ff36d44403caa6f39  README.md
+          ```
+          NOTES
+          if gh release view v0.0.2 >/dev/null 2>&1; then
+            gh release edit v0.0.2 --title "ghpatd v0.0.2" --notes-file /tmp/release-notes.md
+            gh release upload v0.0.2 ./ghpatd-linux-x86_64 ./run_tests.sh ./SHA256SUMS --clobber
+          else
+            gh release create v0.0.2 ./ghpatd-linux-x86_64 ./run_tests.sh ./SHA256SUMS \
+              --target "$(git rev-parse HEAD)" \
+              --title "ghpatd v0.0.2" \
+              --notes-file /tmp/release-notes.md
           fi
