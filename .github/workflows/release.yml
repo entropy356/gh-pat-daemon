@@ -52,8 +52,6 @@ jobs:
           ldd ./ghpatd-linux-x86_64 2>&1 || true
 
       - name: Run integration test suite (A3)
-        id: integration_test
-        continue-on-error: true
         run: bash run_tests.sh ./ghpatd-linux-x86_64
 
       - name: Generate and verify SHA256SUMS
