@@ -1,0 +1,72 @@
+name: Build Release Artifacts
+
+on:
+  push:
+    branches:
+      - main
+      - "arena/**"
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies (musl-tools & age)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools age file
+
+      - name: Install Rust toolchain with musl target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Run unit tests (A2)
+        working-directory: ghpatd
+        run: cargo test
+
+      - name: Build static musl release binary (A1)
+        working-directory: ghpatd
+        env:
+          RUSTFLAGS: "-D warnings"
+        run: cargo build --release --target x86_64-unknown-linux-musl
+
+      - name: Stage release binary & verify static-pie (A4)
+        run: |
+          cp ghpatd/target/x86_64-unknown-linux-musl/release/ghpatd ./ghpatd-linux-x86_64
+          chmod +x ./ghpatd-linux-x86_64
+          file ./ghpatd-linux-x86_64
+          file ./ghpatd-linux-x86_64 | grep -E "static-pie linked|statically linked"
+          file ./ghpatd-linux-x86_64 | grep "stripped"
+          ldd ./ghpatd-linux-x86_64 2>&1 || true
+
+      - name: Run integration test suite (A3)
+        run: bash run_tests.sh ./ghpatd-linux-x86_64
+
+      - name: Generate and verify SHA256SUMS
+        run: |
+          sha256sum ghpatd-linux-x86_64 run_tests.sh README.md > SHA256SUMS
+          cat SHA256SUMS
+          sha256sum -c SHA256SUMS
+
+      - name: Commit release artifacts to branch
+        if: github.ref_type == 'branch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f ghpatd-linux-x86_64 SHA256SUMS
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): build ghpatd-linux-x86_64 and update SHA256SUMS [skip ci]"
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
