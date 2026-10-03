@@ -30,6 +30,9 @@ pub struct Meta {
     pub login: Option<String>,
     pub scopes: Vec<String>,
     pub fingerprint: Option<String>,
+    /// git 提交署名（start --user-name/--user-email，可选；非敏感数据）
+    pub git_user: Option<String>,
+    pub git_email: Option<String>,
 }
 
 pub struct DaemonState {
@@ -102,10 +105,10 @@ fn iso8601_utc(secs: u64) -> String {
 /// daemon 子进程入口（argv[1] == "--daemon-internal"，§5.3.4）
 /// 返回退出码；stdout 为与父进程通信的管道（OK <公钥> / ERR <原因>）
 pub fn run_internal() -> i32 {
-    let sock_path: PathBuf = match std::env::var("GHPAT_SOCK") {
+    let sock_path: PathBuf = match std::env::var("GHPATD_SOCK") {
         Ok(s) if !s.is_empty() => s.into(),
         _ => {
-            eprintln!("ERR missing GHPAT_SOCK");
+            eprintln!("ERR missing GHPATD_SOCK");
             return 1;
         }
     };
@@ -171,7 +174,14 @@ pub fn run_internal() -> i32 {
             .expect("reqwest client");
         let state = Arc::new(DaemonState {
             page: Mutex::new(page),
-            meta: Mutex::new(Meta { pubkey, login: None, scopes: Vec::new(), fingerprint: None }),
+            meta: Mutex::new(Meta {
+                pubkey,
+                login: None,
+                scopes: Vec::new(),
+                fingerprint: None,
+                git_user: std::env::var("GHPATD_USER_NAME").ok().filter(|s| !s.is_empty()),
+                git_email: std::env::var("GHPATD_USER_EMAIL").ok().filter(|s| !s.is_empty()),
+            }),
             client,
             sock_path: sock_path.clone(),
         });
@@ -436,6 +446,7 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request, caller_pid: Option<u3
     match req.cmd.as_str() {
         "status" => Outbound::Plain(cmd_status(state, req).await),
         "pubkey" => Outbound::Plain(cmd_pubkey(state, req)),
+        "getuser" => Outbound::Plain(cmd_getuser(state, req)),
         "set_token" => Outbound::Plain(cmd_set_token(state, req).await),
         "get_pat" => cmd_get_pat(state, req, caller_pid).await,
         "gh" => Outbound::Plain(cmd_gh(state, req).await),
@@ -459,6 +470,12 @@ async fn cmd_status(state: &Arc<DaemonState>, req: &Request) -> Response {
 fn cmd_pubkey(state: &Arc<DaemonState>, req: &Request) -> Response {
     let pubkey = state.meta.lock().unwrap().pubkey.clone();
     Response::ok(req.id, json!({"pubkey": pubkey}))
+}
+
+/// 署名查询（wrap 注入用）：返回 start 时配置的 user.name/user.email，未配置为 null
+fn cmd_getuser(state: &Arc<DaemonState>, req: &Request) -> Response {
+    let meta = state.meta.lock().unwrap();
+    Response::ok(req.id, json!({"user": meta.git_user, "email": meta.git_email}))
 }
 
 /// N-3：兼容 ASCII armored 的 age 密文（-----BEGIN AGE ENCRYPTED FILE-----）。

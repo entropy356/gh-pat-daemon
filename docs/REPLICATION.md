@@ -34,7 +34,7 @@
 7. **daemon.rs**：按顺序实现 log/iso8601 → read_line_capped/discard_to_newline →
    write_outbound/push_json_escaped → strip_age_armor → 各 cmd_* → dispatch → handle_conn →
    run_internal → destroy_parts + 4 个单测（§4）。此步完成即得到可运行的 daemon：
-   `GHPAT_SOCK=… ./ghpatd --daemon-internal` 应打印 `OK age1…`，nc 发 `{"id":1,"cmd":"status"}`
+   `GHPATD_SOCK=… ./ghpatd --daemon-internal` 应打印 `OK age1…`，nc 发 `{"id":1,"cmd":"status"}`
    应回 `{"id":1,"ok":true,…}`。
 8. **client.rs**：start（fork/exec 自身）/ set_token / stop / status / pubkey / gh / resolve_repo（§5）。
 9. **gh.rs**：api_call/api_list/表格/`--json` 投影 + 12 个子命令实现（§6）。纯 daemon 内逻辑，
@@ -75,7 +75,7 @@
 | T2 | argv 检查（1） | `ps -eo args` 无 `ghp_…`/`password=` |
 | T3 | set-token 错误路径（3） | 有 age：假 token 被 401 拒（TOKEN_INVALID）；无 age：坏密文被拒（NOT_RECIPIENT_FORMAT/DECRYPT_FAILED）；失败后 status 仍 READY |
 | T4 | cred-helper（4） | 非 github.com host 空输出；未注入时空输出；store 静默 0；erase 静默 0 |
-| T5 | wrap（5） | `wrap -- env`：GIT_CONFIG_COUNT=1、KEY_0=credential.https://github.com.helper、GIT_TERMINAL_PROMPT=0、GHPAT_SOCK=$SOCK；`wrap -- true` 透传退出码 |
+| T5 | wrap（5） | `wrap -- env`：GIT_CONFIG_COUNT=1、KEY_0=credential.https://github.com.helper、GIT_TERMINAL_PROMPT=0、GHPATD_SOCK=$SOCK；`wrap -- true` 透传退出码 |
 | T6 | 仅 stdin（1） | `set-token <路径>` 被拒绝（非零退出） |
 | T7 | 崩溃恢复（4） | kill -9 后 status 报错；残留 socket 清理后可重启；stop 退出码 0；stop 后 socket unlink |
 | T8 | 权限（1） | 运行目录 0700 |
@@ -85,6 +85,7 @@
 | T12 | P1-2 行长上限（2） | 发 >64KB 行被拒（收到错误响应）；daemon 仍 READY |
 | T13 | N-3 armored（1，条件） | `age -a` 密文 → set-token 走到 TOKEN_INVALID（证明 armor 剥离成功） |
 | T14 | N-4 审计日志（5） | 日志含 shutdown、conn_timeout、line_too_long 事件；失败注入无 token_set 成功事件；日志无 PAT 明文 |
+| T15 | 署名注入（6） | `start --user-name --user-email` 后 `wrap -- env`：GIT_CONFIG_COUNT=3、KEY_1=user.name、KEY_2=user.email、KEY_0 凭据 helper 不变；无署名重启后 COUNT=1（默认行为兼容） |
 
 ## 5. 手工 E2E 剧本（验收项 A8）
 

@@ -151,7 +151,7 @@ pub fn next_id() -> u64   // static AtomicU64 从 1 起，fetch_add(Relaxed)
 
 ### 3.2 路径解析
 
-- `resolve_sock(override: Option<&Path>) -> PathBuf`：`--sock` > `GHPAT_SOCK`（非空）>
+- `resolve_sock(override: Option<&Path>) -> PathBuf`：`--sock` > `GHPATD_SOCK`（非空）>
   `sock_dir_default().join(SOCK_FILE)`。
 - `sock_dir_default()`：`XDG_RUNTIME_DIR`（非空）否则 `/tmp/ghpatd-{getuid()}`。
 - `ensure_sock_dir(path) -> Result<(), String>`（§5.3.1）：
@@ -177,7 +177,7 @@ parse JSON（失败 → InvalidData）。
 
 ```rust
 const READ_TIMEOUT: Duration = Duration::from_secs(10);        // P1-1
-pub struct Meta { pub pubkey: String, pub login: Option<String>, pub scopes: Vec<String>, pub fingerprint: Option<String> }
+pub struct Meta { pub pubkey: String, pub login: Option<String>, pub scopes: Vec<String>, pub fingerprint: Option<String>, pub git_user: Option<String>, pub git_email: Option<String> }  // git_user/git_email：start --user-name/--user-email 配置的署名（非敏感）
 pub struct DaemonState {
     pub page: Mutex<SensitivePage>,
     pub meta: Mutex<Meta>,
@@ -213,7 +213,7 @@ y   = yoe + era*400 + (mo<=2 ? 1 : 0)
 
 见 [ARCHITECTURE.md](ARCHITECTURE.md) §5.2 十一步序列。要点：
 
-- `GHPAT_SOCK` 缺失 → stderr `ERR missing GHPAT_SOCK`，exit 1。
+- `GHPATD_SOCK` 缺失 → stderr `ERR missing GHPATD_SOCK`，exit 1。
 - `libc::umask(0o077)` → `libc::prctl(PR_SET_DUMPABLE, 0,0,0,0)` → `SensitivePage::new()` →
   `agekey::generate()`（三步任一失败 → stderr `ERR …` exit 1）→ `page.set_identity(&raw)`。
 - tokio Runtime → block_on：兜底 remove_file → `UnixListener::bind` → stdout
@@ -335,7 +335,7 @@ match req.cmd:
 ### 5.1 `start(sock, foreground) -> i32`（见 ARCHITECTURE §5.1）
 
 fork 子进程细节：pipe2(O_CLOEXEC) → fork；子进程 dup2(写端→1)、close 两端、
-`GHPAT_SOCK` 合入 env（收集 vars 后追加 set_var）、`Command::new(current_exe).arg("--daemon-internal").exec()`
+`GHPATD_SOCK` 合入 env（收集 vars 后追加 set_var）、`Command::new(current_exe).arg("--daemon-internal").exec()`
 （exec 失败 → `ERR exec 失败` exit 127）。父进程 close 写端、`File::from_raw_fd(读端)` →
 BufReader → 线程 read_line → mpsc → `recv_timeout(5s)`。`OK <pubkey>` → stdout 三行：
 
@@ -460,15 +460,17 @@ url→html_url, author→user.login, createdAt→created_at, isDraft→draft
 ## 8. `wrap.rs` —— wrap 形态
 
 `run(sock, command) -> i32`：command 空 → `✘ wrap 需要 -- 后跟目标命令` exit 1。
-`current_exe` → helper 值 `!{exe} cred-helper`。env 注入（嵌套 wrap 兼容：从既有
-`GIT_CONFIG_COUNT` 读取偏移 idx，写回 idx+1）：
+`current_exe` → helper 值 `!{exe} cred-helper`。先经 IPC `getuser`（5s 超时，失败按未配置处理）
+查询署名，env 注入（嵌套 wrap 兼容：从既有 `GIT_CONFIG_COUNT` 读取偏移 idx，写回 idx+1+N）：
 
 ```
-GIT_CONFIG_COUNT = existing + 1
+GIT_CONFIG_COUNT = existing + 1 + N        # N = 署名条目数（0/1/2）
+GIT_CONFIG_KEY_{idx+1} = user.name         # 配置了 --user-name 时
+GIT_CONFIG_KEY_{idx+2} = user.email        # 配置了 --user-email 时
 GIT_CONFIG_KEY_{idx}   = credential.https://github.com.helper
 GIT_CONFIG_VALUE_{idx} = !{exe} cred-helper
 GIT_TERMINAL_PROMPT    = 0
-GHPAT_SOCK             = {sock}
+GHPATD_SOCK             = {sock}
 ```
 
 `Command::new(command[0]).args(rest).status()`；退出码透传（None → 1）；启动失败 →

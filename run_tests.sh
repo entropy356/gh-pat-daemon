@@ -58,7 +58,7 @@ echo "== 5. wrap =="
 grep -q "^GIT_CONFIG_COUNT=1$" "$TMP/env.out"; check "GIT_CONFIG_COUNT=1"
 grep -q "^GIT_CONFIG_KEY_0=credential.https://github.com.helper$" "$TMP/env.out"; check "KEY_0 注入"
 grep -q "^GIT_TERMINAL_PROMPT=0$" "$TMP/env.out"; check "GIT_TERMINAL_PROMPT=0"
-grep -q "^GHPAT_SOCK=$SOCK$" "$TMP/env.out"; check "GHPAT_SOCK 传递"
+grep -q "^GHPATD_SOCK=$SOCK$" "$TMP/env.out"; check "GHPATD_SOCK 传递"
 "$BIN" --sock "$SOCK" wrap -- true; check "wrap 透传退出码"
 
 echo "== 6. N-2: set-token 文件参数已移除 =="
@@ -157,6 +157,19 @@ grep -q "action=conn_timeout" "$LOG"; check "日志含读超时审计事件"
 grep -q "action=line_too_long" "$LOG"; check "日志含超长拒绝审计事件"
 grep -q "action=token_set" "$LOG" && bad "失败注入不应记 token_set 成功" || ok "失败注入无 token_set 成功事件"
 grep -q "ghp_dummytoken" "$LOG" && bad "日志泄漏 PAT" || ok "日志无 PAT 明文"
+
+echo "== 15. git 署名注入 =="
+"$BIN" --sock "$SOCK" start --user-name "AI Agent" --user-email "agent@example.com" >/dev/null 2>&1; check "start 携带署名重启"
+"$BIN" --sock "$SOCK" wrap -- env > "$TMP/env_sig.out" 2>&1
+grep -q "^GIT_CONFIG_COUNT=3$" "$TMP/env_sig.out"; check "配置署名后 GIT_CONFIG_COUNT=3"
+grep -q "^GIT_CONFIG_KEY_1=user.name$" "$TMP/env_sig.out" && grep -q "^GIT_CONFIG_VALUE_1=AI Agent$" "$TMP/env_sig.out"; check "user.name 注入"
+grep -q "^GIT_CONFIG_KEY_2=user.email$" "$TMP/env_sig.out" && grep -q "^GIT_CONFIG_VALUE_2=agent@example.com$" "$TMP/env_sig.out"; check "user.email 注入"
+grep -q "^GIT_CONFIG_KEY_0=credential.https://github.com.helper$" "$TMP/env_sig.out"; check "凭据 helper 仍为条目 0"
+"$BIN" --sock "$SOCK" stop >/dev/null 2>&1
+"$BIN" --sock "$SOCK" start >/dev/null 2>&1
+"$BIN" --sock "$SOCK" wrap -- env > "$TMP/env_nosig.out" 2>&1
+grep -q "^GIT_CONFIG_COUNT=1$" "$TMP/env_nosig.out"; check "未配置署名时 GIT_CONFIG_COUNT=1（兼容默认行为）"
+"$BIN" --sock "$SOCK" stop >/dev/null 2>&1
 
 echo
 echo "通过 $PASS / $((PASS+FAIL))"

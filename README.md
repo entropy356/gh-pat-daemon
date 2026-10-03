@@ -21,6 +21,8 @@
 # 1. 启动 daemon（fork 子进程；打印 age 公钥）
 ./ghpatd-linux-x86_64 start
 #    可选：./ghpatd-linux-x86_64 start --foreground   # 前台运行（调试）
+#    可选署名：start --user-name "AI Agent" --user-email agent@example.com
+#              wrap 会在 git 提交时自动注入 user.name/user.email
 
 # 2. 用打印出的公钥在本地加密 PAT（ghpatd 自身不把 PAT 写入磁盘、不进 argv/env）
 #    v0.0.2 起推荐直接管道，pat.enc 不落盘：

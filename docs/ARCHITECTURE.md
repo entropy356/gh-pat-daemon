@@ -40,7 +40,7 @@ PAT 全生命周期不落盘、不进 argv/env，仅存于 daemon 进程的 mloc
                                api.github.com
 
   git ──credential helper 协议──▶ cred-helper 形态 ──IPC get_pat──▶ daemon
-  wrap：为目标命令注入 GIT_CONFIG_* / GIT_TERMINAL_PROMPT=0 / GHPAT_SOCK 后 exec
+  wrap：为目标命令注入 GIT_CONFIG_* / GIT_TERMINAL_PROMPT=0 / GHPATD_SOCK 后 exec；配置了署名时额外注入 user.name/user.email 条目（经 getuser 查询）
 ```
 
 数据流要点：
@@ -56,7 +56,7 @@ PAT 全生命周期不落盘、不进 argv/env，仅存于 daemon 进程的 mloc
 
 | 路径 | 说明 | 权限 |
 |---|---|---|
-| socket 路径 | `--sock` > 环境变量 `GHPAT_SOCK` > `${XDG_RUNTIME_DIR:-/tmp/ghpatd-$UID}/ghpatd.sock` | 0600（umask 077 先行） |
+| socket 路径 | `--sock` > 环境变量 `GHPATD_SOCK` > `${XDG_RUNTIME_DIR:-/tmp/ghpatd-$UID}/ghpatd.sock` | 0600（umask 077 先行） |
 | sock 父目录 | 回退 /tmp 时：归属当前 UID 且 0700（已存在但权限过宽时自动收紧） | 0700 |
 | 日志 | socket 同目录 `ghpatd.log` | 0600，超 1MB 截断保留后半 |
 
@@ -79,6 +79,7 @@ PAT 全生命周期不落盘、不进 argv/env，仅存于 daemon 进程的 mloc
 |---|---|---|
 | `status` | — | 返回 `{state: "ready"/"armed", fingerprint}` |
 | `pubkey` | — | 返回 `{pubkey}`（与规格的偏差：v0.0.2 新增） |
+| `getuser` | — | 返回 `{user, email}`（start --user-name/--user-email 配置的 git 署名；未配置为 null） |
 | `set_token` | `enc_b64` | base64(age 密文) → 验证 → 写页 |
 | `get_pat` | `host`、`protocol` | 仅供 cred-helper；域过滤后返回凭据响应 |
 | `gh` | `args`（可含 `repo`） | daemon 内执行 gh 子命令语义的 REST |
@@ -141,15 +142,15 @@ username 固定 `x-access-token`（fine-grained PAT 的 git 认证用户名）�
 2. 残留检测：socket 文件存在 → 试连接；可连 → `DAEMON_ALREADY_RUNNING` exit 1；
    不可连 → 视为残留，unlink。
 3. `pipe2(O_CLOEXEC)` 匿名管道 → `fork()`：
-   - 子进程：写端 dup2 到 stdout、关读端，设 `GHPAT_SOCK` env，`exec` 自身 `--daemon-internal`。
+   - 子进程：写端 dup2 到 stdout、关读端，设 `GHPATD_SOCK` env，`exec` 自身 `--daemon-internal`。
    - 父进程：关写端，起线程阻塞读第一行，5s 超时。
 4. 收到 `OK <pubkey>` → 打印公钥/pid/socket/READY，exit 0；`ERR …` 或超时 → `START_TIMEOUT` exit 1。
 
-`start --foreground`：不 fork，当前进程 `set_var("GHPAT_SOCK")` 后直接进入 daemon 模式。
+`start --foreground`：不 fork，当前进程 `set_var("GHPATD_SOCK")` 后直接进入 daemon 模式。
 
 ### 5.2 daemon 启动序列（次序有讲究）
 
-1. 读 `GHPAT_SOCK` env（缺失 → stderr `ERR missing GHPAT_SOCK`，exit 1）。
+1. 读 `GHPATD_SOCK` env（缺失 → stderr `ERR missing GHPATD_SOCK`，exit 1）。
 2. `umask(0o077)` —— 先于 bind，socket 文件创建即 0600（消除 bind→chmod 的 TOCTOU）。
 3. `prctl(PR_SET_DUMPABLE, 0)` —— 在创建任何敏感数据之前禁 core dump。
 4. 创建 SensitivePage（失败 → `ERR mmap/mlock 失败` exit 1）。

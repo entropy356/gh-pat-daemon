@@ -73,12 +73,12 @@ pub fn next_id() -> u64 {
     N.fetch_add(1, Ordering::Relaxed)
 }
 
-/// socket 路径解析（§5.3.1、§6.1）：--sock > GHPAT_SOCK > XDG_RUNTIME_DIR > /tmp/ghpatd-$UID
+/// socket 路径解析（§5.3.1、§6.1）：--sock > GHPATD_SOCK > XDG_RUNTIME_DIR > /tmp/ghpatd-$UID
 pub fn resolve_sock(override_path: Option<&Path>) -> std::path::PathBuf {
     if let Some(p) = override_path {
         return p.to_path_buf();
     }
-    if let Ok(s) = std::env::var("GHPAT_SOCK") {
+    if let Ok(s) = std::env::var("GHPATD_SOCK") {
         if !s.is_empty() {
             return s.into();
         }

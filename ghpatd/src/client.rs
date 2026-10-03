@@ -19,11 +19,13 @@ fn call_or_exit(sock: &Path, req: Request) -> Response {
     }
 }
 
-/// ghpatd start（§5.3）
-pub fn start(sock: &Path, foreground: bool) -> i32 {
+/// ghpatd start（§5.3）。user_name/user_email：git 提交署名（可选），经环境变量传给 daemon 子进程
+pub fn start(sock: &Path, foreground: bool, user_name: Option<&str>, user_email: Option<&str>) -> i32 {
     if foreground {
         // §7.2：当前进程直接进入 daemon 模式，公钥打印 stdout，不 fork
-        std::env::set_var("GHPAT_SOCK", sock);
+        std::env::set_var("GHPATD_SOCK", sock);
+        if let Some(n) = user_name { std::env::set_var("GHPATD_USER_NAME", n); }
+        if let Some(e) = user_email { std::env::set_var("GHPATD_USER_EMAIL", e); }
         return crate::daemon::run_internal();
     }
 
@@ -70,7 +72,9 @@ pub fn start(sock: &Path, foreground: bool) -> i32 {
             libc::close(fds[1]);
         }
         let mut env_map: Vec<(String, String)> = std::env::vars().collect();
-        env_map.push(("GHPAT_SOCK".into(), sock.to_string_lossy().into_owned()));
+        env_map.push(("GHPATD_SOCK".into(), sock.to_string_lossy().into_owned()));
+        if let Some(n) = user_name { env_map.push(("GHPATD_USER_NAME".into(), n.to_string())); }
+        if let Some(e) = user_email { env_map.push(("GHPATD_USER_EMAIL".into(), e.to_string())); }
         for (k, v) in env_map {
             std::env::set_var(&k, &v);
         }

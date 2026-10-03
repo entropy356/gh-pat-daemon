@@ -31,9 +31,14 @@ struct Cli {
 #[derive(clap::Subcommand)]
 enum Cmd {
     /// 启动 daemon（fork 子进程；--foreground 时当前进程直接进入 daemon 模式）
+    /// 可选 --user-name/--user-email：git 提交署名，存 daemon 内存，由 wrap 注入
     Start {
         #[arg(long)]
         foreground: bool,
+        #[arg(long, value_name = "NAME")]
+        user_name: Option<String>,
+        #[arg(long, value_name = "EMAIL")]
+        user_email: Option<String>,
     },
     /// 注入 PAT：从 stdin 读取 age 公钥加密的密文（支持 base64 或 ASCII armored；
     /// v0.0.2 起不再接受文件路径参数，避免 token.enc 落盘）
@@ -198,7 +203,9 @@ fn main() {
     let cli = Cli::parse();
     let sock = ipc::resolve_sock(cli.sock.as_deref());
     let code = match cli.cmd {
-        Cmd::Start { foreground } => client::start(&sock, foreground),
+        Cmd::Start { foreground, user_name, user_email } => {
+            client::start(&sock, foreground, user_name.as_deref(), user_email.as_deref())
+        }
         Cmd::SetToken => client::set_token(&sock),
         Cmd::Stop => client::stop(&sock),
         Cmd::Status => client::status(&sock),
