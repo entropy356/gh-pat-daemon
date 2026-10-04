@@ -24,6 +24,9 @@ struct Cli {
     /// 覆盖 socket 路径（测试隔离用；默认 ${XDG_RUNTIME_DIR:-/tmp/ghpatd-$UID}/ghpatd.sock）
     #[arg(long, global = true, value_name = "PATH")]
     sock: Option<PathBuf>,
+    /// 以 JSON 输出结果（start/status/set-token/stop；供脚本与 AI Agent 机器解析）
+    #[arg(long, global = true)]
+    json: bool,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -202,13 +205,14 @@ fn main() {
 
     let cli = Cli::parse();
     let sock = ipc::resolve_sock(cli.sock.as_deref());
+    let json = cli.json;
     let code = match cli.cmd {
         Cmd::Start { foreground, user_name, user_email } => {
-            client::start(&sock, foreground, user_name.as_deref(), user_email.as_deref())
+            client::start(&sock, foreground, user_name.as_deref(), user_email.as_deref(), json)
         }
-        Cmd::SetToken => client::set_token(&sock),
-        Cmd::Stop => client::stop(&sock),
-        Cmd::Status => client::status(&sock),
+        Cmd::SetToken => client::set_token(&sock, json),
+        Cmd::Stop => client::stop(&sock, json),
+        Cmd::Status => client::status(&sock, json),
         Cmd::Pubkey => client::pubkey(&sock),
         Cmd::Wrap { command } => wrap::run(&sock, command),
         Cmd::Api { endpoint, method, fields, jq } => {

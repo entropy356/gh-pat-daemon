@@ -20,7 +20,7 @@ fn call_or_exit(sock: &Path, req: Request) -> Response {
 }
 
 /// ghpatd start（§5.3）。user_name/user_email：git 提交署名（可选），经环境变量传给 daemon 子进程
-pub fn start(sock: &Path, foreground: bool, user_name: Option<&str>, user_email: Option<&str>) -> i32 {
+pub fn start(sock: &Path, foreground: bool, user_name: Option<&str>, user_email: Option<&str>, json: bool) -> i32 {
     if foreground {
         // §7.2：当前进程直接进入 daemon 模式，公钥打印 stdout，不 fork
         std::env::set_var("GHPATD_SOCK", sock);
@@ -115,9 +115,23 @@ pub fn start(sock: &Path, foreground: bool, user_name: Option<&str>, user_email:
     };
     let msg = msg.trim().to_string();
     if let Some(pubkey) = msg.strip_prefix("OK ") {
-        println!("{pubkey}");
-        println!("daemon 已启动 (pid {child}, socket: {})", sock.display());
-        println!("状态: READY（等待 token 注入）");
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "ok": true,
+                    "pubkey": pubkey,
+                    "pid": child,
+                    "socket": sock.to_string_lossy(),
+                    "state": "ready",
+                })
+            );
+        } else {
+            println!("{pubkey}");
+            println!("daemon 已启动 (pid {child}, socket: {})", sock.display());
+            println!("状态: READY（等待 token 注入）");
+            println!("下一步: 把上面 age1... 公钥发给用户，等待 age -r <公钥> -a 加密的密文后执行 ghpatd set-token（stdin 注入）");
+        }
         0
     } else {
         eprintln!("✘ daemon 启动失败: {}", msg.trim_start_matches("ERR "));
@@ -125,17 +139,70 @@ pub fn start(sock: &Path, foreground: bool, user_name: Option<&str>, user_email:
     }
 }
 
+/// 密文清洗（Agent 体验优化）：Agent 粘贴密文时经常夹杂聊天窗口产生的
+/// markdown 代码围栏、说明文字、折行或首尾空白，统一在此容错处理：
+/// 1. 输入含 ASCII armored 块时，无论块前后有什么文字，只截取
+///    `-----BEGIN AGE ENCRYPTED FILE-----` 到 `-----END AGE ENCRYPTED FILE-----` 的整块；
+/// 2. 输入为 base64 文本（可能被终端/聊天窗口折行）时，去除全部 ASCII 空白；
+/// 3. 其余情况（二进制密文）仅去除首尾空白后原样透传。
+pub fn sanitize_ciphertext(bytes: &[u8]) -> Vec<u8> {
+    const BEGIN: &str = "-----BEGIN AGE ENCRYPTED FILE-----";
+    const END: &str = "-----END AGE ENCRYPTED FILE-----";
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        // 1. armored：截取完整密文块（忽略围栏与前后说明文字）
+        if let Some(start) = text.find(BEGIN) {
+            if let Some(end_rel) = text[start..].find(END) {
+                let end = start + end_rel + END.len();
+                return text[start..end].as_bytes().to_vec();
+            }
+        }
+        let t = text.trim();
+        // 2. base64 文本（字母数字 + +/-//=/空白）：去除全部空白再透传
+        if !t.is_empty()
+            && t.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"+/=\r\n \t".contains(&b))
+        {
+            let cleaned: Vec<u8> = t
+                .bytes()
+                .filter(|b| !b.is_ascii_whitespace())
+                .collect();
+            if !cleaned.is_empty() {
+                return cleaned;
+            }
+        }
+        return t.as_bytes().to_vec();
+    }
+    // 3. 二进制密文：仅去除首尾空白
+    let first = bytes
+        .iter()
+        .position(|b| !b.is_ascii_whitespace())
+        .unwrap_or(bytes.len());
+    let last = bytes
+        .iter()
+        .rposition(|b| !b.is_ascii_whitespace())
+        .map(|i| i + 1)
+        .unwrap_or(first);
+    bytes[first..last].to_vec()
+}
+
 /// ghpatd set-token：从 stdin 读取 age 公钥加密的密文
-/// （v0.0.2 N-2：不再接受文件路径参数，避免 token.enc 落盘；支持 ASCII armored，N-3）
-pub fn set_token(sock: &Path) -> i32 {
+/// （v0.0.2 N-2：不再接受文件路径参数，避免 token.enc 落盘；支持 ASCII armored，N-3；
+/// Agent 体验优化：容忍密文块前后夹杂文字/围栏/折行）
+pub fn set_token(sock: &Path, json: bool) -> i32 {
     let mut bytes = Vec::new();
     if std::io::stdin().read_to_end(&mut bytes).is_err() {
         eprintln!("✘ 读取 stdin 失败");
         return 1;
     }
+    let bytes = sanitize_ciphertext(&bytes);
     if bytes.is_empty() {
-        eprintln!("✘ stdin 为空。用法: ghpatd set-token < token.enc");
-        eprintln!("  （先用 pubkey 输出的公钥加密: age -r <pubkey> -a -o token.enc）");
+        eprintln!("✘ stdin 为空。用法（heredoc 注入，全程不落盘）:");
+        eprintln!("  ghpatd set-token <<'EOF'");
+        eprintln!("  -----BEGIN AGE ENCRYPTED FILE-----");
+        eprintln!("  ...");
+        eprintln!("  -----END AGE ENCRYPTED FILE-----");
+        eprintln!("  EOF");
+        eprintln!("  （在本地加密: printf '%s' \"$GITHUB_TOKEN\" | age -r <ghpatd pubkey> -a）");
         return 1;
     }
     use base64::Engine;
@@ -150,10 +217,36 @@ pub fn set_token(sock: &Path) -> i32 {
         protocol: None,
     };
     let resp = call_or_exit(sock, req);
-    print_set_token_result(&resp)
+    print_set_token_result(&resp, json)
 }
 
-fn print_set_token_result(resp: &Response) -> i32 {
+fn print_set_token_result(resp: &Response, json: bool) -> i32 {
+    if json {
+        if resp.ok {
+            let p = resp.payload.as_ref().unwrap();
+            println!(
+                "{}",
+                serde_json::json!({
+                    "ok": true,
+                    "state": "armed",
+                    "login": p.get("login"),
+                    "scopes": p.get("scopes").cloned().unwrap_or(serde_json::Value::Array(vec![])),
+                    "fingerprint": p.get("fingerprint"),
+                })
+            );
+        } else {
+            let err = resp.error.as_ref().unwrap();
+            println!(
+                "{}",
+                serde_json::json!({
+                    "ok": false,
+                    "code": err.code,
+                    "message": err.message,
+                })
+            );
+        }
+        return if resp.ok { 0 } else { 1 };
+    }
     if resp.ok {
         let p = resp.payload.as_ref().unwrap();
         let login = p.get("login").and_then(|v| v.as_str()).unwrap_or("?");
@@ -192,25 +285,37 @@ fn print_set_token_result(resp: &Response) -> i32 {
     }
 }
 
-pub fn stop(sock: &Path) -> i32 {
+pub fn stop(sock: &Path, json: bool) -> i32 {
     let req = Request { id: ipc::next_id(), cmd: "shutdown".into(), enc_b64: None, args: None, repo: None, host: None, protocol: None };
     match ipc::call(sock, &req, Duration::from_secs(10)) {
         Ok(r) if r.ok => {
-            println!("已销毁");
+            if json {
+                println!("{}", serde_json::json!({"ok": true, "state": "destroyed"}));
+            } else {
+                println!("已销毁");
+            }
             0
         }
         _ => {
-            eprintln!("{}", client_message(Code::DaemonNotRunning, None));
+            if json {
+                println!("{}", serde_json::json!({"ok": false, "code": Code::DaemonNotRunning.as_str()}));
+            } else {
+                eprintln!("{}", client_message(Code::DaemonNotRunning, None));
+            }
             1
         }
     }
 }
 
-pub fn status(sock: &Path) -> i32 {
+pub fn status(sock: &Path, json: bool) -> i32 {
     let req = Request { id: ipc::next_id(), cmd: "status".into(), enc_b64: None, args: None, repo: None, host: None, protocol: None };
     let resp = call_or_exit(sock, req);
     if resp.ok {
         let p = resp.payload.unwrap();
+        if json {
+            println!("{p}");
+            return 0;
+        }
         let state = p.get("state").and_then(|v| v.as_str()).unwrap_or("?");
         let fp = p.get("fingerprint").and_then(|v| v.as_str());
         match state {
@@ -219,6 +324,13 @@ pub fn status(sock: &Path) -> i32 {
         }
         0
     } else {
+        if json {
+            let (code, msg) = resp
+                .error
+                .map(|e| (e.code, e.message))
+                .unwrap_or_else(|| ("UNKNOWN".into(), String::new()));
+            println!("{}", serde_json::json!({"ok": false, "code": code, "message": msg}));
+        }
         1
     }
 }
@@ -309,4 +421,55 @@ fn parse_remote_url(url: &str) -> Option<String> {
 #[allow(dead_code)]
 fn unused(v: &Value) {
     let _ = v;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clean_armored_passthrough() {
+        let armored = "-----BEGIN AGE ENCRYPTED FILE-----\nYWJj\n-----END AGE ENCRYPTED FILE-----\n";
+        assert_eq!(sanitize_ciphertext(armored.as_bytes()), armored.trim().as_bytes().to_vec());
+    }
+
+    /// Agent 粘贴密文常带 markdown 围栏与说明文字：应截取其中完整的 armored 块
+    #[test]
+    fn armored_extracted_from_markdown_fences_and_prose() {
+        let noisy = "好的，密文如下：\n```text\n-----BEGIN AGE ENCRYPTED FILE-----\nYWJj\nZGVm\n-----END AGE ENCRYPTED FILE-----\n```\n请注入。";
+        assert_eq!(
+            sanitize_ciphertext(noisy.as_bytes()),
+            b"-----BEGIN AGE ENCRYPTED FILE-----\nYWJj\nZGVm\n-----END AGE ENCRYPTED FILE-----".to_vec()
+        );
+    }
+
+    /// 折行/带缩进的裸 base64 密文：应去除全部空白
+    #[test]
+    fn base64_text_whitespace_stripped() {
+        assert_eq!(sanitize_ciphertext(b"YWJj\nZGVm\n"), b"YWJjZGVm".to_vec());
+        assert_eq!(sanitize_ciphertext(b"  YWJj ZGVm  "), b"YWJjZGVm".to_vec());
+        assert_eq!(
+            sanitize_ciphertext(b"YWJj\r\nZGVm\r\n"),
+            b"YWJjZGVm".to_vec()
+        );
+    }
+
+    /// 常见失误：echo 带来的尾随换行不应导致解密失败
+    #[test]
+    fn trailing_newline_trimmed() {
+        assert_eq!(sanitize_ciphertext(b"YWJjZGVm\n"), b"YWJjZGVm".to_vec());
+    }
+
+    /// 二进制密文：仅去除首尾空白，内容原样透传
+    #[test]
+    fn binary_passthrough_trimmed_only() {
+        let binary: &[u8] = &[0x63, 0x6f, 0xff, 0xfe, 0x01, b'\n'];
+        assert_eq!(sanitize_ciphertext(binary), vec![0x63u8, 0x6f, 0xff, 0xfe, 0x01]);
+    }
+
+    #[test]
+    fn empty_and_whitespace_only() {
+        assert!(sanitize_ciphertext(b"").is_empty());
+        assert!(sanitize_ciphertext(b"  \n\t\n").is_empty());
+    }
 }

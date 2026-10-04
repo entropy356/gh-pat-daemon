@@ -50,21 +50,21 @@ impl fmt::Display for Code {
     }
 }
 
-/// client 侧错误呈现（§9 表）
+/// client 侧错误呈现（§9 表）。Agent 体验优化：每条提示附带可执行的"下一步"动作
 pub fn client_message(code: Code, detail: Option<&str>) -> String {
     match code {
-        Code::DaemonNotRunning => "✘ daemon 未运行，请先执行 ghpatd start".into(),
-        Code::SocketStale => "✘ 残留 socket 已自动清理，请重试".into(),
-        Code::AlreadyRunning => "✘ daemon 已在运行（DAEMON_ALREADY_RUNNING）".into(),
-        Code::NoToken => "✘ PAT 未注入，请执行 ghpatd set-token（stdin）".into(),
-        Code::DecryptFailed => "✘ 解密失败：密文与公钥不匹配或已损坏".into(),
+        Code::DaemonNotRunning => "✘ daemon 未运行（DAEMON_NOT_RUNNING）。下一步: 执行 ghpatd start".into(),
+        Code::SocketStale => "✘ 残留 socket 已自动清理，请重试（SOCKET_STALE）".into(),
+        Code::AlreadyRunning => "✘ daemon 已在运行（DAEMON_ALREADY_RUNNING）。如需重新开始: 先执行 ghpatd stop".into(),
+        Code::NoToken => "✘ PAT 未注入（NO_TOKEN）。下一步: 通过 stdin 注入密文: ghpatd set-token <<'EOF' ... EOF".into(),
+        Code::DecryptFailed => "✘ 解密失败：密文与公钥不匹配或已损坏（DECRYPT_FAILED）。下一步: 执行 ghpatd pubkey 核对公钥，在本地重新 age -r <公钥> -a 加密后注入".into(),
         Code::TokenInvalid => format!(
-            "✘ token 无效（401），注入被拒绝；保留原状态{}",
+            "✘ token 无效（401），注入被拒绝；保留原状态。下一步: 确认 PAT 有效且未过期后重新加密注入{}",
             detail.map(|d| format!("：{d}")).unwrap_or_default()
         ),
-        Code::NotRecipientFormat => "✘ 仅支持 age -r 公钥加密（NOT_RECIPIENT_FORMAT）".into(),
-        Code::RemoteNotHttps => "✘ ghpatd 仅支持 HTTPS remote".into(),
-        Code::StartTimeout => "✘ daemon 启动超时，exit(1)".into(),
+        Code::NotRecipientFormat => "✘ 仅支持 age -r 公钥加密（NOT_RECIPIENT_FORMAT）。下一步: 在本地用 age -r <公钥> -a 加密（不要用 passphrase 模式）".into(),
+        Code::RemoteNotHttps => "✘ ghpatd 仅支持 HTTPS remote（REMOTE_NOT_HTTPS）。下一步: 执行 git remote set-url origin https://github.com/<owner>/<repo>.git，或用 -R OWNER/REPO 指定仓库".into(),
+        Code::StartTimeout => "✘ daemon 启动超时（START_TIMEOUT）。下一步: 检查磁盘与内存后重试 ghpatd start".into(),
         _ => format!("✘ {}{}", code, detail.map(|d| format!(": {d}")).unwrap_or_default()),
     }
 }

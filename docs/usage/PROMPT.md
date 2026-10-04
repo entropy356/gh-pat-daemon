@@ -19,6 +19,7 @@ ghpatd start
 # 如需配置 git 提交署名：ghpatd start --user-name "<Name>" --user-email "<Email>"
 ```
 将输出的 `age1...` 公钥发给我，等待我在本地用 `age -r <公钥> -a` 加密 PAT 后把 ASCII armored 密文发给你。
+（如需机器解析，可改用 `ghpatd --json start` 获取 JSON 输出。）
 
 3. 收到我发来的密文后，通过 `stdin` 注入（严禁落盘）：
 ```bash
@@ -29,6 +30,7 @@ ghpatd set-token <<'EOF'
 EOF
 ghpatd status
 ```
+（密文外若夹杂代码围栏或说明文字会被自动清洗，但仍建议直接粘贴纯密文；可用 `ghpatd --json set-token` 校验注入结果。）
 
 4. 日常使用与销毁：
 - Git 远程操作：`ghpatd wrap -- git pull`、`ghpatd wrap -- git push`、`ghpatd wrap -- git clone https://github.com/owner/repo.git`
