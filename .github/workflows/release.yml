@@ -25,7 +25,7 @@ jobs:
       - name: Check if Rust rebuild is needed
         id: check_rebuild
         run: |
-          if [ -x ./ghpatd-linux-x86_64 ] && sha256sum -c SHA256SUMS >/dev/null 2>&1; then
+          if [ -x ./release/ghpatd-linux-x86_64 ] && (cd release && sha256sum -c SHA256SUMS >/dev/null 2>&1); then
             CHANGED=$(git diff --name-only HEAD~1 HEAD -- ghpatd/ 2>/dev/null || echo "rebuild")
             if [ -z "$CHANGED" ]; then
               echo "needed=false" >> "$GITHUB_OUTPUT"
@@ -60,20 +60,21 @@ jobs:
       - name: Stage release binary & verify static-pie (A4)
         run: |
           if [ "${{ steps.check_rebuild.outputs.needed }}" = "true" ]; then
-            cp ghpatd/target/x86_64-unknown-linux-musl/release/ghpatd ./ghpatd-linux-x86_64
+            cp ghpatd/target/x86_64-unknown-linux-musl/release/ghpatd ./release/ghpatd-linux-x86_64
           fi
-          chmod +x ./ghpatd-linux-x86_64
-          file ./ghpatd-linux-x86_64
-          file ./ghpatd-linux-x86_64 | grep -E "static-pie linked|statically linked"
-          file ./ghpatd-linux-x86_64 | grep "stripped"
-          ldd ./ghpatd-linux-x86_64 2>&1 || true
+          chmod +x ./release/ghpatd-linux-x86_64
+          file ./release/ghpatd-linux-x86_64
+          file ./release/ghpatd-linux-x86_64 | grep -E "static-pie linked|statically linked"
+          file ./release/ghpatd-linux-x86_64 | grep "stripped"
+          ldd ./release/ghpatd-linux-x86_64 2>&1 || true
 
       - name: Run integration test suite (A3)
-        run: bash run_tests.sh ./ghpatd-linux-x86_64
+        run: bash ./release/run_tests.sh ./release/ghpatd-linux-x86_64
 
       - name: Generate and verify SHA256SUMS
+        working-directory: release
         run: |
-          sha256sum ghpatd-linux-x86_64 run_tests.sh README.md docs/API.md > SHA256SUMS
+          sha256sum ghpatd-linux-x86_64 run_tests.sh > SHA256SUMS
           cat SHA256SUMS
           sha256sum -c SHA256SUMS
 
@@ -82,7 +83,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f ghpatd-linux-x86_64 SHA256SUMS
+          git add -f release/ghpatd-linux-x86_64 release/SHA256SUMS
           if ! git diff --cached --quiet; then
             git commit -m "chore(release): build ghpatd-linux-x86_64 and update SHA256SUMS [skip ci]"
             git push origin HEAD:${GITHUB_REF_NAME}
@@ -92,35 +93,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cp docs/API.md /tmp/api.md
-          cat <<'NOTES' > /tmp/release-notes.md
-          ## v0.0.2 更新摘要
-
-          - **缺陷修复**
-            - **P0-1**：修复 `shutdown`/`stop` 响应写回前客户端断开导致跳过销毁的竞态，改为无论写回成败必执行 `zeroize` + `unlink` + `exit`。
-            - **Creds JSON 修复**：修复 `build_creds_line` 闭合括号多写一个 `}` 导致 `cred-helper` 解析失败的问题，并补充单测。
-          - **安全加固**
-            - **P1-1**：新增连接读空闲超时 `10s`，异常客户端不再长期占用连接。
-            - **P1-2**：新增单行请求长度上限 `64 KiB`，超长拒绝并关闭连接。
-            - **P1-3**：`get_pat` 响应采用手工拼接 + `Zeroizing` 缓冲，写出后立即清零。
-          - **功能变更**
-            - **N-1**：项目改名 `gh-pat-daemon`，二进制与 socket/log 统一为 `ghpatd`（breaking）。
-            - **N-2**：`set-token` 仅接受 `stdin` 输入，移除文件路径参数。
-            - **N-3**：`set-token` 自动兼容 ASCII armored（`age -a`）与二进制密文。
-            - **N-4**：统一 `<ISO8601 UTC> action=... result=... peer_pid=...` 审计日志格式。
-            - **署名支持**：`start` 支持可选 `--user-name` / `--user-email`，由 `wrap` 自动注入 git 配置。
+          cp docs/usage/API.md /tmp/api.md
+          cat release/RELEASE_NOTES.md > /tmp/release-notes.md
+          cat <<'EOF' >> /tmp/release-notes.md
 
           ## SHA256SUMS
 
           ```text
-          NOTES
-          (cd /tmp && sha256sum "$GITHUB_WORKSPACE/ghpatd-linux-x86_64" api.md "$GITHUB_WORKSPACE/run_tests.sh" | sed "s|$GITHUB_WORKSPACE/||g") >> /tmp/release-notes.md
+          EOF
+          (cd /tmp && sha256sum "$GITHUB_WORKSPACE/release/ghpatd-linux-x86_64" api.md "$GITHUB_WORKSPACE/release/run_tests.sh" | sed "s|$GITHUB_WORKSPACE/release/||g") >> /tmp/release-notes.md
           echo '```' >> /tmp/release-notes.md
           if gh release view v0.0.2 >/dev/null 2>&1; then
             gh release edit v0.0.2 --title "ghpatd v0.0.2" --notes-file /tmp/release-notes.md
-            gh release upload v0.0.2 ./ghpatd-linux-x86_64 /tmp/api.md ./run_tests.sh ./SHA256SUMS --clobber
+            gh release upload v0.0.2 ./release/ghpatd-linux-x86_64 /tmp/api.md ./release/run_tests.sh ./release/SHA256SUMS --clobber
           else
-            gh release create v0.0.2 ./ghpatd-linux-x86_64 /tmp/api.md ./run_tests.sh ./SHA256SUMS \
+            gh release create v0.0.2 ./release/ghpatd-linux-x86_64 /tmp/api.md ./release/run_tests.sh ./release/SHA256SUMS \
               --target "$(git rev-parse HEAD)" \
               --title "ghpatd v0.0.2" \
               --notes-file /tmp/release-notes.md
