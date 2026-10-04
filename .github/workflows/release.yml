@@ -73,7 +73,7 @@ jobs:
 
       - name: Generate and verify SHA256SUMS
         run: |
-          sha256sum ghpatd-linux-x86_64 run_tests.sh README.md > SHA256SUMS
+          sha256sum ghpatd-linux-x86_64 run_tests.sh README.md docs/API.md > SHA256SUMS
           cat SHA256SUMS
           sha256sum -c SHA256SUMS
 
@@ -92,74 +92,35 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          cp docs/API.md /tmp/api.md
           cat <<'NOTES' > /tmp/release-notes.md
-          ## 给云端 AI Agent 的安装与使用 Prompt（一键复制发送给 Agent）
+          ## v0.0.2 更新摘要
 
-          ````markdown
-          请在当前 Linux 环境中安装并使用 `ghpatd`（GitHub PAT 内存代理），按以下步骤操作：
+          - **缺陷修复**
+            - **P0-1**：修复 `shutdown`/`stop` 响应写回前客户端断开导致跳过销毁的竞态，改为无论写回成败必执行 `zeroize` + `unlink` + `exit`。
+            - **Creds JSON 修复**：修复 `build_creds_line` 闭合括号多写一个 `}` 导致 `cred-helper` 解析失败的问题，并补充单测。
+          - **安全加固**
+            - **P1-1**：新增连接读空闲超时 `10s`，异常客户端不再长期占用连接。
+            - **P1-2**：新增单行请求长度上限 `64 KiB`，超长拒绝并关闭连接。
+            - **P1-3**：`get_pat` 响应采用手工拼接 + `Zeroizing` 缓冲，写出后立即清零。
+          - **功能变更**
+            - **N-1**：项目改名 `gh-pat-daemon`，二进制与 socket/log 统一为 `ghpatd`（breaking）。
+            - **N-2**：`set-token` 仅接受 `stdin` 输入，移除文件路径参数。
+            - **N-3**：`set-token` 自动兼容 ASCII armored（`age -a`）与二进制密文。
+            - **N-4**：统一 `<ISO8601 UTC> action=... result=... peer_pid=...` 审计日志格式。
+            - **署名支持**：`start` 支持可选 `--user-name` / `--user-email`，由 `wrap` 自动注入 git 配置。
 
-          ### 1. 下载并安装 ghpatd 到 $PATH
-          ```bash
-          curl -fsSLO https://github.com/entropy356/gh-pat-daemon/releases/download/v0.0.2/ghpatd-linux-x86_64
-          curl -fsSLO https://github.com/entropy356/gh-pat-daemon/releases/download/v0.0.2/SHA256SUMS
-          grep ghpatd-linux-x86_64 SHA256SUMS | sha256sum -c -
-          install -m 0755 ./ghpatd-linux-x86_64 /usr/local/bin/ghpatd || sudo install -m 0755 ./ghpatd-linux-x86_64 /usr/local/bin/ghpatd
-          ```
-          （若当前仓库目录已有 `./ghpatd-linux-x86_64`，直接执行 `install -m 0755 ./ghpatd-linux-x86_64 /usr/local/bin/ghpatd` 即可。）
-
-          ### 2. 启动 daemon 并把公钥发给我
-          ```bash
-          ghpatd start
-          # 如需配置 git 提交署名：
-          # ghpatd start --user-name "<Name>" --user-email "<Email>"
-          ```
-          将输出的 `age1...` 公钥发给我，并等待我在本地用 `age -r <公钥> -a` 加密 PAT 后把 ASCII armored 密文发给你。
-
-          ### 3. 收到我发来的密文后，通过 stdin 注入（严禁落盘）
-          ```bash
-          ghpatd set-token <<'EOF'
-          -----BEGIN AGE ENCRYPTED FILE-----
-          ...
-          -----END AGE ENCRYPTED FILE-----
-          EOF
-          ghpatd status
-          ```
-
-          ### 4. 日常使用与销毁
-          - 执行 git 远程操作：`ghpatd wrap -- git pull`、`ghpatd wrap -- git push`、`ghpatd wrap -- git clone https://github.com/owner/repo.git`
-          - 执行 GitHub 操作：`ghpatd auth status`、`ghpatd repo view`、`ghpatd pr list`、`ghpatd pr create ...`、`ghpatd issue list`、`ghpatd api <endpoint>`
-          - 任务全部完成后销毁内存凭据：`ghpatd stop`
-
-          ### 5. 安全铁律（必须严格遵守）
-          - **严禁尝试获取、读取、打印、记录或导出 PAT 明文**。
-          - **严禁主动调用 `ghpatd cred-helper get` 或直接向 socket 发送 `get_pat` 请求来读取 token**。
-          - **严禁向我索要 PAT 明文，也严禁将收到的密文或任何凭据写入磁盘文件、环境变量或日志**。
-          - 只能通过 `ghpatd wrap -- git ...` 或 `ghpatd <repo|pr|issue|api|auth>` 间接使用凭据。
-          ````
-
-          ---
-
-          ## 用户本地加密命令（在人类本地终端执行）
-
-          收到云端 Agent 发来的 `age1...` 公钥后，在本地终端执行以下命令并将输出的整段 `-----BEGIN AGE ENCRYPTED FILE----- ... -----END AGE ENCRYPTED FILE-----` 文本复制发送给 Agent：
-
-          ```bash
-          printf '%s' "ghp_xxxxxxxxxxxxxxxxxxxx" | age -r age1xxxxxxxx... -a
-          ```
-
-          ---
-
-          ## 产物校验和（`SHA256SUMS`）
+          ## SHA256SUMS
 
           ```text
           NOTES
-          cat SHA256SUMS >> /tmp/release-notes.md
+          (cd /tmp && sha256sum "$GITHUB_WORKSPACE/ghpatd-linux-x86_64" api.md "$GITHUB_WORKSPACE/run_tests.sh" | sed "s|$GITHUB_WORKSPACE/||g") >> /tmp/release-notes.md
           echo '```' >> /tmp/release-notes.md
           if gh release view v0.0.2 >/dev/null 2>&1; then
             gh release edit v0.0.2 --title "ghpatd v0.0.2" --notes-file /tmp/release-notes.md
-            gh release upload v0.0.2 ./ghpatd-linux-x86_64 ./run_tests.sh ./SHA256SUMS --clobber
+            gh release upload v0.0.2 ./ghpatd-linux-x86_64 /tmp/api.md ./run_tests.sh ./SHA256SUMS --clobber
           else
-            gh release create v0.0.2 ./ghpatd-linux-x86_64 ./run_tests.sh ./SHA256SUMS \
+            gh release create v0.0.2 ./ghpatd-linux-x86_64 /tmp/api.md ./run_tests.sh ./SHA256SUMS \
               --target "$(git rev-parse HEAD)" \
               --title "ghpatd v0.0.2" \
               --notes-file /tmp/release-notes.md
