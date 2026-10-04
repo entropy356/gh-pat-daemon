@@ -88,3 +88,4 @@ printf '%s' "ghp_xxxxxxxxxxxxxxxxxxxx" | age -r age1xxxxxxxx... -a
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 总体架构与生命周期设计规格 |
 | [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md) | 逐模块实现规格 |
 | [docs/REPLICATION.md](docs/REPLICATION.md) | 复刻步骤、验收清单与集成测试规格 |
+| [LICENSE](LICENSE) | 开源协议（MIT-0） |
