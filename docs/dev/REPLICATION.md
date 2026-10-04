@@ -87,11 +87,23 @@
 | T14 | N-4 审计日志（5） | 日志含 shutdown、conn_timeout、line_too_long 事件；失败注入无 token_set 成功事件；日志无 PAT 明文 |
 | T15 | 署名注入（6） | `start --user-name --user-email` 后 `wrap -- env`：GIT_CONFIG_COUNT=3、KEY_1=user.name、KEY_2=user.email、KEY_0 凭据 helper 不变；无署名重启后 COUNT=1（默认行为兼容） |
 
-## 5. 手工 E2E 剧本（验收项 A8）
+## 5. 手工 E2E 剧本（验收项 A8，云端 Agent + 本地手动复制密文）
 
 ```bash
-./ghpatd start                        # 记下打印的 age1… 公钥
-echo -n "<你的PAT>" | age -r <公钥> -a | ./ghpatd set-token
+# 1. [云端 Agent] 启动 daemon，将打印的 age1… 公钥发给用户
+./ghpatd start
+
+# 2. [用户本地] 用公钥加密 PAT 生成 ASCII armored 文本，复制整段密文发送给云端 Agent
+printf '%s' "<你的PAT>" | age -r <公钥> -a
+
+# 3. [云端 Agent] 将收到的密文经 stdin（heredoc）注入 daemon，全程不落盘
+./ghpatd set-token <<'EOF'
+-----BEGIN AGE ENCRYPTED FILE-----
+...
+-----END AGE ENCRYPTED FILE-----
+EOF
+
+# 4. [云端 Agent] 校验状态、执行 git 操作并销毁
 ./ghpatd status                       # ARMED (fingerprint: …)
 ./ghpatd --sock $SOCK wrap -- git push origin main
 ./ghpatd stop                         # 已销毁；确认 socket 已消失
