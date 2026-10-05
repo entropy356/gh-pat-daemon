@@ -11,7 +11,11 @@ use std::time::Duration;
 pub fn run(argv: &[String]) -> i32 {
     // 1. argv 检查
     let op = argv.get(1).map(|s| s.as_str()).unwrap_or("");
-    let op = if op == "cred-helper" { argv.get(2).map(|s| s.as_str()).unwrap_or("") } else { op };
+    let op = if op == "cred-helper" {
+        argv.get(2).map(|s| s.as_str()).unwrap_or("")
+    } else {
+        op
+    };
     match op {
         "get" => {}
         "store" | "erase" => return 0, // 静默成功，不落盘任何凭据

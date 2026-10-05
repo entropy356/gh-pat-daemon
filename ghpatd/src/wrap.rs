@@ -72,16 +72,20 @@ pub fn run(sock: &Path, command: Vec<String>) -> i32 {
 
     let mut cmd = Command::new(&command[0]);
     cmd.args(&command[1..])
-        .env("GIT_CONFIG_COUNT", (existing + 1 + extras.len() as u32).to_string())
-        .env(format!("GIT_CONFIG_KEY_{idx}"), "credential.https://github.com.helper")
+        .env(
+            "GIT_CONFIG_COUNT",
+            (existing + 1 + extras.len() as u32).to_string(),
+        )
+        .env(
+            format!("GIT_CONFIG_KEY_{idx}"),
+            "credential.https://github.com.helper",
+        )
         .env(format!("GIT_CONFIG_VALUE_{idx}"), &helper_value)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GHPATD_SOCK", sock);
-    let mut i = existing + 1;
-    for (k, v) in &extras {
+    for (i, (k, v)) in (existing + 1..).zip(extras.iter()) {
         cmd.env(format!("GIT_CONFIG_KEY_{i}"), k)
             .env(format!("GIT_CONFIG_VALUE_{i}"), v);
-        i += 1;
     }
 
     match cmd.status() {

@@ -20,12 +20,21 @@ fn call_or_exit(sock: &Path, req: Request) -> Response {
 }
 
 /// ghpatd start（§5.3）。user_name/user_email：git 提交署名（可选），经环境变量传给 daemon 子进程
-pub fn start(sock: &Path, foreground: bool, user_name: Option<&str>, user_email: Option<&str>) -> i32 {
+pub fn start(
+    sock: &Path,
+    foreground: bool,
+    user_name: Option<&str>,
+    user_email: Option<&str>,
+) -> i32 {
     if foreground {
         // §7.2：当前进程直接进入 daemon 模式，公钥打印 stdout，不 fork
         std::env::set_var("GHPATD_SOCK", sock);
-        if let Some(n) = user_name { std::env::set_var("GHPATD_USER_NAME", n); }
-        if let Some(e) = user_email { std::env::set_var("GHPATD_USER_EMAIL", e); }
+        if let Some(n) = user_name {
+            std::env::set_var("GHPATD_USER_NAME", n);
+        }
+        if let Some(e) = user_email {
+            std::env::set_var("GHPATD_USER_EMAIL", e);
+        }
         return crate::daemon::run_internal();
     }
 
@@ -57,9 +66,7 @@ pub fn start(sock: &Path, foreground: bool, user_name: Option<&str>, user_email:
             return 1;
         }
     };
-    let child = unsafe {
-        libc::fork()
-    };
+    let child = unsafe { libc::fork() };
     if child < 0 {
         eprintln!("✘ fork 失败");
         return 1;
@@ -73,8 +80,12 @@ pub fn start(sock: &Path, foreground: bool, user_name: Option<&str>, user_email:
         }
         let mut env_map: Vec<(String, String)> = std::env::vars().collect();
         env_map.push(("GHPATD_SOCK".into(), sock.to_string_lossy().into_owned()));
-        if let Some(n) = user_name { env_map.push(("GHPATD_USER_NAME".into(), n.to_string())); }
-        if let Some(e) = user_email { env_map.push(("GHPATD_USER_EMAIL".into(), e.to_string())); }
+        if let Some(n) = user_name {
+            env_map.push(("GHPATD_USER_NAME".into(), n.to_string()));
+        }
+        if let Some(e) = user_email {
+            env_map.push(("GHPATD_USER_EMAIL".into(), e.to_string()));
+        }
         for (k, v) in env_map {
             std::env::set_var(&k, &v);
         }
@@ -160,7 +171,11 @@ fn print_set_token_result(resp: &Response) -> i32 {
         let scopes: Vec<String> = p
             .get("scopes")
             .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default();
         let fp = p.get("fingerprint").and_then(|v| v.as_str()).unwrap_or("?");
         println!("✔ 解密成功");
@@ -193,7 +208,15 @@ fn print_set_token_result(resp: &Response) -> i32 {
 }
 
 pub fn stop(sock: &Path) -> i32 {
-    let req = Request { id: ipc::next_id(), cmd: "shutdown".into(), enc_b64: None, args: None, repo: None, host: None, protocol: None };
+    let req = Request {
+        id: ipc::next_id(),
+        cmd: "shutdown".into(),
+        enc_b64: None,
+        args: None,
+        repo: None,
+        host: None,
+        protocol: None,
+    };
     match ipc::call(sock, &req, Duration::from_secs(10)) {
         Ok(r) if r.ok => {
             println!("已销毁");
@@ -207,7 +230,15 @@ pub fn stop(sock: &Path) -> i32 {
 }
 
 pub fn status(sock: &Path) -> i32 {
-    let req = Request { id: ipc::next_id(), cmd: "status".into(), enc_b64: None, args: None, repo: None, host: None, protocol: None };
+    let req = Request {
+        id: ipc::next_id(),
+        cmd: "status".into(),
+        enc_b64: None,
+        args: None,
+        repo: None,
+        host: None,
+        protocol: None,
+    };
     let resp = call_or_exit(sock, req);
     if resp.ok {
         let p = resp.payload.unwrap();
@@ -224,10 +255,25 @@ pub fn status(sock: &Path) -> i32 {
 }
 
 pub fn pubkey(sock: &Path) -> i32 {
-    let req = Request { id: ipc::next_id(), cmd: "pubkey".into(), enc_b64: None, args: None, repo: None, host: None, protocol: None };
+    let req = Request {
+        id: ipc::next_id(),
+        cmd: "pubkey".into(),
+        enc_b64: None,
+        args: None,
+        repo: None,
+        host: None,
+        protocol: None,
+    };
     let resp = call_or_exit(sock, req);
     if resp.ok {
-        println!("{}", resp.payload.unwrap().get("pubkey").and_then(|v| v.as_str()).unwrap_or(""));
+        println!(
+            "{}",
+            resp.payload
+                .unwrap()
+                .get("pubkey")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+        );
         0
     } else {
         1
@@ -236,7 +282,15 @@ pub fn pubkey(sock: &Path) -> i32 {
 
 /// gh 子命令：IPC gh → daemon REST → 输出透传
 pub fn gh(sock: &Path, args: Vec<String>, repo: Option<String>) -> i32 {
-    let req = Request { id: ipc::next_id(), cmd: "gh".into(), enc_b64: None, args: Some(args), repo, host: None, protocol: None };
+    let req = Request {
+        id: ipc::next_id(),
+        cmd: "gh".into(),
+        enc_b64: None,
+        args: Some(args),
+        repo,
+        host: None,
+        protocol: None,
+    };
     let resp = call_or_exit(sock, req);
     if resp.ok {
         let p = resp.payload.unwrap();
@@ -275,10 +329,9 @@ pub fn resolve_repo(explicit: Option<&str>) -> Result<Option<String>, (Code, Str
     match out {
         Ok(o) if o.status.success() => {
             let url = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            parse_remote_url(&url).map(Some).ok_or((
-                Code::RemoteNotHttps,
-                url,
-            ))
+            parse_remote_url(&url)
+                .map(Some)
+                .ok_or((Code::RemoteNotHttps, url))
         }
         _ => Ok(None), // 非 git 仓库且命令未指定 repo → 交由 daemon 报错
     }

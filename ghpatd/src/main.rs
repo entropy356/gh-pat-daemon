@@ -203,15 +203,27 @@ fn main() {
     let cli = Cli::parse();
     let sock = ipc::resolve_sock(cli.sock.as_deref());
     let code = match cli.cmd {
-        Cmd::Start { foreground, user_name, user_email } => {
-            client::start(&sock, foreground, user_name.as_deref(), user_email.as_deref())
-        }
+        Cmd::Start {
+            foreground,
+            user_name,
+            user_email,
+        } => client::start(
+            &sock,
+            foreground,
+            user_name.as_deref(),
+            user_email.as_deref(),
+        ),
         Cmd::SetToken => client::set_token(&sock),
         Cmd::Stop => client::stop(&sock),
         Cmd::Status => client::status(&sock),
         Cmd::Pubkey => client::pubkey(&sock),
         Cmd::Wrap { command } => wrap::run(&sock, command),
-        Cmd::Api { endpoint, method, fields, jq } => {
+        Cmd::Api {
+            endpoint,
+            method,
+            fields,
+            jq,
+        } => {
             let args = build_api_args(&endpoint, &method, &fields, &jq, None);
             client::gh(&sock, args, None)
         }
@@ -228,169 +240,199 @@ fn main() {
                     }
                 }
             }
-            RepoCmd::List { limit, repo_flag: _ } => {
-                let args = vec!["repo".into(), "list".into(), "--limit".into(), limit.to_string()];
+            RepoCmd::List {
+                limit,
+                repo_flag: _,
+            } => {
+                let args = vec![
+                    "repo".into(),
+                    "list".into(),
+                    "--limit".into(),
+                    limit.to_string(),
+                ];
                 client::gh(&sock, args, None)
             }
         },
         Cmd::Pr { sub } => match sub {
-            PrCmd::List { state, limit, repo_flag, json, jq } => {
-                match client::resolve_repo(repo_flag.as_deref()) {
-                    Err((code, detail)) => {
-                        eprintln!("{}", err::client_message(code, Some(&detail)));
-                        1
-                    }
-                    Ok(r) => {
-                        let mut args = vec![
-                            "pr".into(),
-                            "list".into(),
-                            "--state".into(),
-                            state,
-                            "--limit".into(),
-                            limit.to_string(),
-                        ];
-                        if json {
-                            args.push("--json".into());
-                        }
-                        if let Some(q) = jq {
-                            args.push("--jq".into());
-                            args.push(q.clone());
-                        }
-                        client::gh(&sock, args, r)
-                    }
+            PrCmd::List {
+                state,
+                limit,
+                repo_flag,
+                json,
+                jq,
+            } => match client::resolve_repo(repo_flag.as_deref()) {
+                Err((code, detail)) => {
+                    eprintln!("{}", err::client_message(code, Some(&detail)));
+                    1
                 }
-            }
-            PrCmd::View { number, repo_flag, json, jq } => {
-                match client::resolve_repo(repo_flag.as_deref()) {
-                    Err((code, detail)) => {
-                        eprintln!("{}", err::client_message(code, Some(&detail)));
-                        1
+                Ok(r) => {
+                    let mut args = vec![
+                        "pr".into(),
+                        "list".into(),
+                        "--state".into(),
+                        state,
+                        "--limit".into(),
+                        limit.to_string(),
+                    ];
+                    if json {
+                        args.push("--json".into());
                     }
-                    Ok(r) => {
-                        let mut args = vec!["pr".into(), "view".into(), number.to_string()];
-                        if json {
-                            args.push("--json".into());
-                        }
-                        if let Some(q) = jq {
-                            args.push("--jq".into());
-                            args.push(q.clone());
-                        }
-                        client::gh(&sock, args, r)
+                    if let Some(q) = jq {
+                        args.push("--jq".into());
+                        args.push(q.clone());
                     }
+                    client::gh(&sock, args, r)
                 }
-            }
-            PrCmd::Create { title, head, base, body, repo_flag } => {
-                match client::resolve_repo(repo_flag.as_deref()) {
-                    Err((code, detail)) => {
-                        eprintln!("{}", err::client_message(code, Some(&detail)));
-                        1
-                    }
-                    Ok(r) => {
-                        let mut args = vec![
-                            "pr".into(),
-                            "create".into(),
-                            "--title".into(),
-                            title,
-                            "--head".into(),
-                            head,
-                            "--base".into(),
-                            base,
-                        ];
-                        if let Some(b) = body {
-                            args.push("--body".into());
-                            args.push(b);
-                        }
-                        client::gh(&sock, args, r)
-                    }
+            },
+            PrCmd::View {
+                number,
+                repo_flag,
+                json,
+                jq,
+            } => match client::resolve_repo(repo_flag.as_deref()) {
+                Err((code, detail)) => {
+                    eprintln!("{}", err::client_message(code, Some(&detail)));
+                    1
                 }
-            }
-            PrCmd::Merge { number, merge, squash, rebase, repo_flag } => {
-                match client::resolve_repo(repo_flag.as_deref()) {
-                    Err((code, detail)) => {
-                        eprintln!("{}", err::client_message(code, Some(&detail)));
-                        1
+                Ok(r) => {
+                    let mut args = vec!["pr".into(), "view".into(), number.to_string()];
+                    if json {
+                        args.push("--json".into());
                     }
-                    Ok(r) => {
-                        let mut args = vec!["pr".into(), "merge".into(), number.to_string()];
-                        if squash {
-                            args.push("--squash".into());
-                        } else if rebase {
-                            args.push("--rebase".into());
-                        } else if merge {
-                            args.push("--merge".into());
-                        }
-                        client::gh(&sock, args, r)
+                    if let Some(q) = jq {
+                        args.push("--jq".into());
+                        args.push(q.clone());
                     }
+                    client::gh(&sock, args, r)
                 }
-            }
+            },
+            PrCmd::Create {
+                title,
+                head,
+                base,
+                body,
+                repo_flag,
+            } => match client::resolve_repo(repo_flag.as_deref()) {
+                Err((code, detail)) => {
+                    eprintln!("{}", err::client_message(code, Some(&detail)));
+                    1
+                }
+                Ok(r) => {
+                    let mut args = vec![
+                        "pr".into(),
+                        "create".into(),
+                        "--title".into(),
+                        title,
+                        "--head".into(),
+                        head,
+                        "--base".into(),
+                        base,
+                    ];
+                    if let Some(b) = body {
+                        args.push("--body".into());
+                        args.push(b);
+                    }
+                    client::gh(&sock, args, r)
+                }
+            },
+            PrCmd::Merge {
+                number,
+                merge,
+                squash,
+                rebase,
+                repo_flag,
+            } => match client::resolve_repo(repo_flag.as_deref()) {
+                Err((code, detail)) => {
+                    eprintln!("{}", err::client_message(code, Some(&detail)));
+                    1
+                }
+                Ok(r) => {
+                    let mut args = vec!["pr".into(), "merge".into(), number.to_string()];
+                    if squash {
+                        args.push("--squash".into());
+                    } else if rebase {
+                        args.push("--rebase".into());
+                    } else if merge {
+                        args.push("--merge".into());
+                    }
+                    client::gh(&sock, args, r)
+                }
+            },
         },
         Cmd::Issue { sub } => match sub {
-            IssueCmd::List { state, limit, repo_flag, json, jq } => {
-                match client::resolve_repo(repo_flag.as_deref()) {
-                    Err((code, detail)) => {
-                        eprintln!("{}", err::client_message(code, Some(&detail)));
-                        1
-                    }
-                    Ok(r) => {
-                        let mut args = vec![
-                            "issue".into(),
-                            "list".into(),
-                            "--state".into(),
-                            state,
-                            "--limit".into(),
-                            limit.to_string(),
-                        ];
-                        if json {
-                            args.push("--json".into());
-                        }
-                        if let Some(q) = jq {
-                            args.push("--jq".into());
-                            args.push(q.clone());
-                        }
-                        client::gh(&sock, args, r)
-                    }
+            IssueCmd::List {
+                state,
+                limit,
+                repo_flag,
+                json,
+                jq,
+            } => match client::resolve_repo(repo_flag.as_deref()) {
+                Err((code, detail)) => {
+                    eprintln!("{}", err::client_message(code, Some(&detail)));
+                    1
                 }
-            }
-            IssueCmd::View { number, repo_flag, json, jq } => {
-                match client::resolve_repo(repo_flag.as_deref()) {
-                    Err((code, detail)) => {
-                        eprintln!("{}", err::client_message(code, Some(&detail)));
-                        1
+                Ok(r) => {
+                    let mut args = vec![
+                        "issue".into(),
+                        "list".into(),
+                        "--state".into(),
+                        state,
+                        "--limit".into(),
+                        limit.to_string(),
+                    ];
+                    if json {
+                        args.push("--json".into());
                     }
-                    Ok(r) => {
-                        let mut args = vec!["issue".into(), "view".into(), number.to_string()];
-                        if json {
-                            args.push("--json".into());
-                        }
-                        if let Some(q) = jq {
-                            args.push("--jq".into());
-                            args.push(q.clone());
-                        }
-                        client::gh(&sock, args, r)
+                    if let Some(q) = jq {
+                        args.push("--jq".into());
+                        args.push(q.clone());
                     }
+                    client::gh(&sock, args, r)
                 }
-            }
-            IssueCmd::Create { title, body, repo_flag } => {
-                match client::resolve_repo(repo_flag.as_deref()) {
-                    Err((code, detail)) => {
-                        eprintln!("{}", err::client_message(code, Some(&detail)));
-                        1
-                    }
-                    Ok(r) => {
-                        let mut args = vec!["issue".into(), "create".into(), "--title".into(), title];
-                        if let Some(b) = body {
-                            args.push("--body".into());
-                            args.push(b);
-                        }
-                        client::gh(&sock, args, r)
-                    }
+            },
+            IssueCmd::View {
+                number,
+                repo_flag,
+                json,
+                jq,
+            } => match client::resolve_repo(repo_flag.as_deref()) {
+                Err((code, detail)) => {
+                    eprintln!("{}", err::client_message(code, Some(&detail)));
+                    1
                 }
-            }
+                Ok(r) => {
+                    let mut args = vec!["issue".into(), "view".into(), number.to_string()];
+                    if json {
+                        args.push("--json".into());
+                    }
+                    if let Some(q) = jq {
+                        args.push("--jq".into());
+                        args.push(q.clone());
+                    }
+                    client::gh(&sock, args, r)
+                }
+            },
+            IssueCmd::Create {
+                title,
+                body,
+                repo_flag,
+            } => match client::resolve_repo(repo_flag.as_deref()) {
+                Err((code, detail)) => {
+                    eprintln!("{}", err::client_message(code, Some(&detail)));
+                    1
+                }
+                Ok(r) => {
+                    let mut args = vec!["issue".into(), "create".into(), "--title".into(), title];
+                    if let Some(b) = body {
+                        args.push("--body".into());
+                        args.push(b);
+                    }
+                    client::gh(&sock, args, r)
+                }
+            },
         },
         Cmd::Auth { sub } => match sub {
-            AuthCmd::Status => {
-                client::gh(&sock, vec!["auth".into(), "status".into()], None)
-            }
+            AuthCmd::Status => client::gh(&sock, vec!["auth".into(), "status".into()], None),
         },
     };
     std::process::exit(code);
@@ -403,7 +445,12 @@ fn build_api_args(
     jq: &Option<String>,
     _extra: Option<()>,
 ) -> Vec<String> {
-    let mut args = vec!["api".to_string(), endpoint.to_string(), "--method".to_string(), method.to_string()];
+    let mut args = vec![
+        "api".to_string(),
+        endpoint.to_string(),
+        "--method".to_string(),
+        method.to_string(),
+    ];
     for f in fields {
         args.push("--field".to_string());
         args.push(f.clone());

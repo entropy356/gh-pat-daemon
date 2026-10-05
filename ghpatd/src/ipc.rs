@@ -18,7 +18,10 @@ pub const MAX_LINE: usize = 64 * 1024;
 /// 序列化走手工拼接 + Zeroizing 缓冲，响应写出后立即清零
 pub enum Outbound {
     Plain(Response),
-    Creds { id: u64, password: Zeroizing<String> },
+    Creds {
+        id: u64,
+        password: Zeroizing<String>,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -55,14 +58,22 @@ pub struct Response {
 
 impl Response {
     pub fn ok(id: u64, payload: Value) -> Self {
-        Response { id, ok: true, payload: Some(payload), error: None }
+        Response {
+            id,
+            ok: true,
+            payload: Some(payload),
+            error: None,
+        }
     }
     pub fn err(id: u64, code: &str, message: impl Into<String>) -> Self {
         Response {
             id,
             ok: false,
             payload: None,
-            error: Some(ErrorBody { code: code.into(), message: message.into() }),
+            error: Some(ErrorBody {
+                code: code.into(),
+                message: message.into(),
+            }),
         }
     }
 }
@@ -114,7 +125,8 @@ pub fn ensure_sock_dir(path: &Path) -> Result<(), String> {
                 }
             }
             Err(_) => {
-                std::fs::create_dir(dir).map_err(|e| format!("创建 {} 失败: {e}", dir.display()))?;
+                std::fs::create_dir(dir)
+                    .map_err(|e| format!("创建 {} 失败: {e}", dir.display()))?;
                 std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
                     .map_err(|e| e.to_string())?;
             }
@@ -145,7 +157,10 @@ pub fn call(sock: &Path, req: &Request, timeout: Duration) -> Result<Response, s
         ));
     }
     serde_json::from_str(&buf).map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, format!("响应解析失败: {e}"))
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("响应解析失败: {e}"),
+        )
     })
 }
 

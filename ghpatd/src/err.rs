@@ -65,6 +65,10 @@ pub fn client_message(code: Code, detail: Option<&str>) -> String {
         Code::NotRecipientFormat => "✘ 仅支持 age -r 公钥加密（NOT_RECIPIENT_FORMAT）".into(),
         Code::RemoteNotHttps => "✘ ghpatd 仅支持 HTTPS remote".into(),
         Code::StartTimeout => "✘ daemon 启动超时，exit(1)".into(),
-        _ => format!("✘ {}{}", code, detail.map(|d| format!(": {d}")).unwrap_or_default()),
+        _ => format!(
+            "✘ {}{}",
+            code,
+            detail.map(|d| format!(": {d}")).unwrap_or_default()
+        ),
     }
 }

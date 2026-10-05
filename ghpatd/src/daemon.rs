@@ -44,7 +44,9 @@ pub struct DaemonState {
 
 /// 日志（§7.2）：仅错误与状态变更；超 1MB 截断保留后半
 pub fn log_line(sock_path: &Path, msg: &str) {
-    let Some(dir) = sock_path.parent() else { return };
+    let Some(dir) = sock_path.parent() else {
+        return;
+    };
     let path = dir.join(LOG_FILE);
     let _ = std::fs::File::options()
         .create(true)
@@ -62,7 +64,10 @@ pub fn log_line(sock_path: &Path, msg: &str) {
                         let _ = std::fs::write(&path, keep);
                     }
                     let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-                    return std::fs::File::options().create(true).append(true).open(&path);
+                    return std::fs::File::options()
+                        .create(true)
+                        .append(true)
+                        .open(&path);
                 }
             }
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).ok();
@@ -70,13 +75,22 @@ pub fn log_line(sock_path: &Path, msg: &str) {
         })
         .and_then(|mut f| {
             use std::time::{SystemTime, UNIX_EPOCH};
-            let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+            let ts = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
             writeln!(f, "[{}] {}", iso8601_utc(ts), msg)
         });
 }
 
 /// 审计行（N-4）：统一 action/result/peer_pid 字段，安全事件全覆盖；不得包含 PAT 明文
-pub fn log_audit(sock_path: &Path, action: &str, result: &str, peer: Option<u32>, detail: Option<&str>) {
+pub fn log_audit(
+    sock_path: &Path,
+    action: &str,
+    result: &str,
+    peer: Option<u32>,
+    detail: Option<&str>,
+) {
     let peer_s = peer.map(|p| p.to_string()).unwrap_or_else(|| "-".into());
     let mut msg = format!("action={action} result={result} peer_pid={peer_s}");
     if let Some(d) = detail {
@@ -179,8 +193,12 @@ pub fn run_internal() -> i32 {
                 login: None,
                 scopes: Vec::new(),
                 fingerprint: None,
-                git_user: std::env::var("GHPATD_USER_NAME").ok().filter(|s| !s.is_empty()),
-                git_email: std::env::var("GHPATD_USER_EMAIL").ok().filter(|s| !s.is_empty()),
+                git_user: std::env::var("GHPATD_USER_NAME")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
+                git_email: std::env::var("GHPATD_USER_EMAIL")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
             }),
             client,
             sock_path: sock_path.clone(),
@@ -214,9 +232,13 @@ pub fn run_internal() -> i32 {
                                 | std::io::ErrorKind::BrokenPipe
                                 | std::io::ErrorKind::ConnectionReset
                                 | std::io::ErrorKind::WouldBlock => {}
-                                _ => {
-                                    log_audit(&state.sock_path, "conn_error", "io", None, Some(&e.to_string()))
-                                }
+                                _ => log_audit(
+                                    &state.sock_path,
+                                    "conn_error",
+                                    "io",
+                                    None,
+                                    Some(&e.to_string()),
+                                ),
                             }
                         }
                     });
@@ -248,7 +270,11 @@ fn destroy(state: &DaemonState) -> ! {
 /// SO_PEERCRED 校验 uid 并取调用方 PID（§8.1）
 fn peer_uid_pid(stream: &tokio::net::UnixStream) -> Option<(u32, u32)> {
     unsafe {
-        let mut ucred: libc::ucred = libc::ucred { pid: 0, uid: 0, gid: 0 };
+        let mut ucred: libc::ucred = libc::ucred {
+            pid: 0,
+            uid: 0,
+            gid: 0,
+        };
         let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
         let ret = libc::getsockopt(
             stream.as_raw_fd(),
@@ -288,7 +314,13 @@ async fn handle_conn(
             }
             LineRead::TooLong => {
                 // P1-2：超长拒绝并关闭连接，记审计
-                log_audit(&state.sock_path, "line_too_long", "rejected", peer_pid, None);
+                log_audit(
+                    &state.sock_path,
+                    "line_too_long",
+                    "rejected",
+                    peer_pid,
+                    None,
+                );
                 let resp = Outbound::Plain(Response::err(
                     0,
                     "BAD_REQUEST",
@@ -301,7 +333,11 @@ async fn handle_conn(
                 let req: Request = match serde_json::from_str(line.trim()) {
                     Ok(r) => r,
                     Err(e) => {
-                        let resp = Outbound::Plain(Response::err(0, "BAD_REQUEST", format!("请求解析失败: {e}")));
+                        let resp = Outbound::Plain(Response::err(
+                            0,
+                            "BAD_REQUEST",
+                            format!("请求解析失败: {e}"),
+                        ));
                         write_outbound(&mut writer, &resp).await?;
                         continue;
                     }
@@ -311,7 +347,13 @@ async fn handle_conn(
                 if shutdown {
                     // P0-1：响应写回为 best-effort；客户端在写回前断开也必须销毁
                     if write_outbound(&mut writer, &resp).await.is_err() {
-                        log_audit(&state.sock_path, "shutdown", "resp_write_failed_destroy_anyway", peer_pid, None);
+                        log_audit(
+                            &state.sock_path,
+                            "shutdown",
+                            "resp_write_failed_destroy_anyway",
+                            peer_pid,
+                            None,
+                        );
                     }
                     log_audit(&state.sock_path, "shutdown", "ok", peer_pid, None);
                     destroy(&state);
@@ -340,7 +382,12 @@ async fn read_line_capped(
         // P1-1：空闲超时包裹每次缓冲读取
         let avail = match tokio::time::timeout(READ_TIMEOUT, reader.fill_buf()).await {
             Ok(Ok(s)) => s,
-            Ok(Err(e)) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
+            Ok(Err(e))
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
                 return Ok(LineRead::Timeout);
             }
             Ok(Err(e)) => return Err(e),
@@ -382,7 +429,7 @@ async fn read_line_capped(
 async fn discard_to_newline(reader: &mut BufReader<tokio::net::unix::OwnedReadHalf>) {
     loop {
         match reader.fill_buf().await {
-            Ok(s) if s.is_empty() => break,
+            Ok([]) => break,
             Ok(s) => match s.iter().position(|&b| b == b'\n') {
                 Some(p) => {
                     reader.consume(p + 1);
@@ -437,7 +484,9 @@ fn push_json_escaped(buf: &mut Vec<u8>, s: &str) {
             '\n' => buf.extend_from_slice(b"\\n"),
             '\r' => buf.extend_from_slice(b"\\r"),
             '\t' => buf.extend_from_slice(b"\\t"),
-            c if (c as u32) < 0x20 => buf.extend_from_slice(format!("\\u{:04x}", c as u32).as_bytes()),
+            c if (c as u32) < 0x20 => {
+                buf.extend_from_slice(format!("\\u{:04x}", c as u32).as_bytes())
+            }
             c => {
                 let mut b = [0u8; 4];
                 buf.extend_from_slice(c.encode_utf8(&mut b).as_bytes());
@@ -455,7 +504,11 @@ async fn dispatch(state: &Arc<DaemonState>, req: &Request, caller_pid: Option<u3
         "get_pat" => cmd_get_pat(state, req, caller_pid).await,
         "gh" => Outbound::Plain(cmd_gh(state, req).await),
         "shutdown" => Outbound::Plain(Response::ok(req.id, json!({"ok": true}))),
-        other => Outbound::Plain(Response::err(req.id, "BAD_REQUEST", format!("未知命令: {other}"))),
+        other => Outbound::Plain(Response::err(
+            req.id,
+            "BAD_REQUEST",
+            format!("未知命令: {other}"),
+        )),
     }
 }
 
@@ -479,13 +532,18 @@ fn cmd_pubkey(state: &Arc<DaemonState>, req: &Request) -> Response {
 /// 署名查询（wrap 注入用）：返回 start 时配置的 user.name/user.email，未配置为 null
 fn cmd_getuser(state: &Arc<DaemonState>, req: &Request) -> Response {
     let meta = state.meta.lock().unwrap();
-    Response::ok(req.id, json!({"user": meta.git_user, "email": meta.git_email}))
+    Response::ok(
+        req.id,
+        json!({"user": meta.git_user, "email": meta.git_email}),
+    )
 }
 
 /// N-3：兼容 ASCII armored 的 age 密文（-----BEGIN AGE ENCRYPTED FILE-----）。
 /// 非 armored 输入原样返回；armor 解包失败也原样返回，交由后续 Decryptor 报明确错误。
 fn strip_age_armor(bytes: &[u8]) -> Vec<u8> {
-    let Ok(text) = std::str::from_utf8(bytes) else { return bytes.to_vec() };
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return bytes.to_vec();
+    };
     let t = text.trim();
     if !t.starts_with("-----BEGIN AGE ENCRYPTED FILE-----") {
         return bytes.to_vec();
@@ -521,10 +579,18 @@ async fn cmd_set_token(state: &Arc<DaemonState>, req: &Request) -> Response {
     let decryptor = match age::Decryptor::new(&enc[..]) {
         Ok(age::Decryptor::Recipients(d)) => d,
         Ok(age::Decryptor::Passphrase(_)) => {
-            return Response::err(req.id, Code::NotRecipientFormat.as_str(), "仅支持 age -r 公钥加密")
+            return Response::err(
+                req.id,
+                Code::NotRecipientFormat.as_str(),
+                "仅支持 age -r 公钥加密",
+            )
         }
         Err(_) => {
-            return Response::err(req.id, Code::DecryptFailed.as_str(), "密文与公钥不匹配或已损坏")
+            return Response::err(
+                req.id,
+                Code::DecryptFailed.as_str(),
+                "密文与公钥不匹配或已损坏",
+            )
         }
     };
 
@@ -536,8 +602,7 @@ async fn cmd_set_token(state: &Arc<DaemonState>, req: &Request) -> Response {
         match crate::agekey::identity_from_raw(&raw_z) {
             Ok(id) => {
                 let mut buf = Vec::new();
-                let mut r = match decryptor.decrypt(std::iter::once(&id as &dyn age::Identity))
-                {
+                let mut r = match decryptor.decrypt(std::iter::once(&id as &dyn age::Identity)) {
                     Ok(r) => r,
                     Err(_) => {
                         return Response::err(
@@ -565,7 +630,11 @@ async fn cmd_set_token(state: &Arc<DaemonState>, req: &Request) -> Response {
         return Response::err(req.id, Code::DecryptFailed.as_str(), "明文为空");
     }
     if pat_str.len() > crate::page::PAT_CAP {
-        return Response::err(req.id, Code::PatTooLong.as_str(), format!("PAT 超长（>{} 字节）", crate::page::PAT_CAP));
+        return Response::err(
+            req.id,
+            Code::PatTooLong.as_str(),
+            format!("PAT 超长（>{} 字节）", crate::page::PAT_CAP),
+        );
     }
 
     // 3. GET /user 验证
@@ -593,16 +662,37 @@ async fn cmd_set_token(state: &Arc<DaemonState>, req: &Request) -> Response {
         return Response::err(req.id, Code::TokenInvalid.as_str(), "GitHub 返回 401");
     }
     if status != 200 {
-        let msg = resp.json::<serde_json::Value>().await.ok().and_then(|v| {
-            v.get("message").and_then(|m| m.as_str()).map(|s| s.to_string())
-        }).unwrap_or_default();
-        return Response::err(req.id, Code::ApiError.as_str(), format!("GitHub API {status}: {msg}"));
+        let msg = resp
+            .json::<serde_json::Value>()
+            .await
+            .ok()
+            .and_then(|v| {
+                v.get("message")
+                    .and_then(|m| m.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_default();
+        return Response::err(
+            req.id,
+            Code::ApiError.as_str(),
+            format!("GitHub API {status}: {msg}"),
+        );
     }
     let user: serde_json::Value = match resp.json().await {
         Ok(u) => u,
-        Err(e) => return Response::err(req.id, Code::ApiError.as_str(), format!("响应解析失败: {e}")),
+        Err(e) => {
+            return Response::err(
+                req.id,
+                Code::ApiError.as_str(),
+                format!("响应解析失败: {e}"),
+            )
+        }
     };
-    let login = user.get("login").and_then(|v| v.as_str()).unwrap_or("?").to_string();
+    let login = user
+        .get("login")
+        .and_then(|v| v.as_str())
+        .unwrap_or("?")
+        .to_string();
 
     // 4. 验证通过后：原地 zeroize 旧 PAT → 写入新 PAT → 记录指纹
     {
@@ -619,7 +709,13 @@ async fn cmd_set_token(state: &Arc<DaemonState>, req: &Request) -> Response {
         meta.scopes = scopes.clone();
     }
     // N-4：审计行只含指纹，不含 PAT
-    log_audit(&state.sock_path, "token_set", "ok", None, Some(&format!("login={login} fp={fp}")));
+    log_audit(
+        &state.sock_path,
+        "token_set",
+        "ok",
+        None,
+        Some(&format!("login={login} fp={fp}")),
+    );
     Response::ok(
         req.id,
         json!({"login": login, "scopes": scopes, "fingerprint": fp}),
@@ -630,11 +726,7 @@ async fn cmd_set_token(state: &Arc<DaemonState>, req: &Request) -> Response {
 /// P1-3：返回 Outbound::Creds，序列化走 Zeroizing 缓冲；
 /// 出口副本收敛为单份 Zeroizing<String>（写出后随缓冲清零）。
 /// 已知边界：cmd_gh 的 reqwest/auth 头路径为第三方库内部，无法保证清零（文档已标注）。
-async fn cmd_get_pat(
-    state: &Arc<DaemonState>,
-    req: &Request,
-    caller_pid: Option<u32>,
-) -> Outbound {
+async fn cmd_get_pat(state: &Arc<DaemonState>, req: &Request, caller_pid: Option<u32>) -> Outbound {
     let host = req.host.as_deref().unwrap_or("");
     let protocol = req.protocol.as_deref().unwrap_or("");
     if protocol != "https" || !matches!(host, "github.com" | "www.github.com") {
@@ -660,7 +752,10 @@ async fn cmd_get_pat(
                 caller_pid,
                 Some(&format!("host={host}")),
             );
-            Outbound::Creds { id: req.id, password: p }
+            Outbound::Creds {
+                id: req.id,
+                password: p,
+            }
         }
     }
 }
@@ -674,8 +769,11 @@ async fn cmd_gh(state: &Arc<DaemonState>, req: &Request) -> Response {
         Some(p) => p.to_string(),
         None => return Response::err(req.id, Code::NoToken.as_str(), "PAT 未注入"),
     };
-    let ctx = ApiCtx { client: &state.client, pat: &pat };
-    let r: GhResult = gh_exec(&ctx, &args, req.repo.as_deref()).await;
+    let ctx = ApiCtx {
+        client: &state.client,
+        pat: &pat,
+    };
+    let r: GhResult = gh_exec(&ctx, args, req.repo.as_deref()).await;
     drop(pat);
     Response::ok(
         req.id,
@@ -693,7 +791,11 @@ fn gh_exec<'a>(
 
 /// 处理 X-OAuth-Scopes 的辅助（set_token 用；保留以便 Fine-grained 判定）
 pub fn parse_scopes(header: &str) -> Vec<String> {
-    header.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+    header
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 #[cfg(test)]
@@ -705,7 +807,10 @@ mod tests {
     #[test]
     fn destroy_parts_zeroizes_even_when_file_missing() {
         let page = Mutex::new(SensitivePage::new().unwrap());
-        page.lock().unwrap().set_pat("tok_test_not_a_real_pat").unwrap();
+        page.lock()
+            .unwrap()
+            .set_pat("tok_test_not_a_real_pat")
+            .unwrap();
         let dir = std::env::temp_dir().join(format!("ghpatd-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let sock = dir.join("t.sock");
@@ -732,10 +837,15 @@ mod tests {
         );
         assert_eq!(strip_age_armor(armored.as_bytes()), payload.to_vec());
         // 非 armored 原样返回
-        assert_eq!(strip_age_armor(b"raw-bytes-no-armor"), b"raw-bytes-no-armor".to_vec());
+        assert_eq!(
+            strip_age_armor(b"raw-bytes-no-armor"),
+            b"raw-bytes-no-armor".to_vec()
+        );
         // armor 解包失败也原样返回（交由 Decryptor 报错）
         assert_eq!(
-            strip_age_armor(b"-----BEGIN AGE ENCRYPTED FILE-----\n!!!\n-----END AGE ENCRYPTED FILE-----"),
+            strip_age_armor(
+                b"-----BEGIN AGE ENCRYPTED FILE-----\n!!!\n-----END AGE ENCRYPTED FILE-----"
+            ),
             b"-----BEGIN AGE ENCRYPTED FILE-----\n!!!\n-----END AGE ENCRYPTED FILE-----".to_vec()
         );
     }

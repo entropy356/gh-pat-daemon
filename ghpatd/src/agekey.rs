@@ -39,11 +39,14 @@ pub fn identity_from_raw(raw: &[u8; 32]) -> Result<Identity, String> {
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn encrypt_for_test(pubkey: &str, plaintext: &[u8]) -> Result<Vec<u8>, String> {
     use std::io::Write;
-    let recipient: age::x25519::Recipient = pubkey.parse().map_err(|e| format!("{e}"))?;
-    let encryptor =
-        age::Encryptor::with_recipients(vec![Box::new(recipient)]).ok_or("无接收者")?;
+    let recipient: age::x25519::Recipient = pubkey
+        .parse::<age::x25519::Recipient>()
+        .map_err(|e| e.to_string())?;
+    let encryptor = age::Encryptor::with_recipients(vec![Box::new(recipient)]).ok_or("无接收者")?;
     let mut out = Vec::new();
-    let mut w = encryptor.wrap_output(&mut out).map_err(|e| format!("{e}"))?;
+    let mut w = encryptor
+        .wrap_output(&mut out)
+        .map_err(|e| format!("{e}"))?;
     w.write_all(plaintext).map_err(|e| format!("{e}"))?;
     w.finish().map_err(|e| format!("{e}"))?;
     Ok(out)
@@ -56,7 +59,7 @@ mod tests {
     #[test]
     fn roundtrip() {
         let (_id, raw, pubkey) = generate().unwrap();
-        assert_eq!(pubkey.len() >= 20 && pubkey.starts_with("age1"), true);
+        assert!(pubkey.len() >= 20 && pubkey.starts_with("age1"));
         let id2 = identity_from_raw(&raw).unwrap();
         assert_eq!(id2.to_public().to_string(), pubkey);
     }

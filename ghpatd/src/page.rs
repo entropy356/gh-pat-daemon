@@ -47,7 +47,9 @@ impl SensitivePage {
                 libc::munmap(ptr, PAGE_SIZE);
                 return Err(e);
             }
-            Ok(SensitivePage { page: ptr as *mut u8 })
+            Ok(SensitivePage {
+                page: ptr as *mut u8,
+            })
         }
     }
 
@@ -73,8 +75,8 @@ impl SensitivePage {
     pub fn identity_raw(&self) -> [u8; 32] {
         let mut out = [0u8; 32];
         unsafe {
-            for i in 0..32 {
-                out[i] = self.page.add(OFF_IDENTITY + i).read_volatile();
+            for (i, v) in out.iter_mut().enumerate() {
+                *v = self.page.add(OFF_IDENTITY + i).read_volatile();
             }
         }
         out
@@ -98,8 +100,8 @@ impl SensitivePage {
 
     unsafe fn pat_len(&self) -> usize {
         let mut b = [0u8; 8];
-        for i in 0..8 {
-            b[i] = self.page.add(OFF_PAT_LEN + i).read_volatile();
+        for (i, v) in b.iter_mut().enumerate() {
+            *v = self.page.add(OFF_PAT_LEN + i).read_volatile();
         }
         u64::from_le_bytes(b) as usize
     }
@@ -162,7 +164,8 @@ mod tests {
         let page = SensitivePage::new().unwrap();
         assert!(!page.is_armed());
         assert!(page.pat().is_none());
-        page.set_pat("ghp_abcdefghijklmnopqrstuv0123456789").unwrap();
+        page.set_pat("ghp_abcdefghijklmnopqrstuv0123456789")
+            .unwrap();
         assert_eq!(page.pat(), Some("ghp_abcdefghijklmnopqrstuv0123456789"));
         page.set_pat("ghp_short").unwrap();
         assert_eq!(page.pat(), Some("ghp_short"));
@@ -174,11 +177,17 @@ mod tests {
 
     #[test]
     fn fingerprints() {
-        assert_eq!(fingerprint("ghp_123456789012345678901234567899xYz"), "ghp_…9xYz");
+        assert_eq!(
+            fingerprint("ghp_123456789012345678901234567899xYz"),
+            "ghp_…9xYz"
+        );
         assert_eq!(
             fingerprint("github_pat_11ABC0123aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa9xYz"),
             "github_pat_…9xYz"
         );
-        assert_eq!(fingerprint("totallyunknownprefix01234567899xYz"), "totallyu…9xYz");
+        assert_eq!(
+            fingerprint("totallyunknownprefix01234567899xYz"),
+            "totallyu…9xYz"
+        );
     }
 }
