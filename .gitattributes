@@ -1,0 +1,17 @@
+# 统一以 LF 存放与检出:本仓库的脚本与源码要在 Linux 上构建与运行。
+# 起因:2026-10-05 排查 core.autocrlf=true 造成的换行符"假修改"——工作区内容与索引
+# 完全一致,git 却判定为已修改,导致 git pull 被拒。
+* text=auto eol=lf
+
+# 若日后新增 Windows 专用脚本,保留 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制明确不做换行转换
+*.exe binary
+*.dll binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.xz binary
