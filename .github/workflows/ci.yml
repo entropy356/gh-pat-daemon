@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "arena/**"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    name: fmt, clippy and tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          workspaces: ghpatd
+
+      - name: Check formatting
+        working-directory: ghpatd
+        run: cargo fmt --check
+
+      - name: Run clippy
+        working-directory: ghpatd
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Run unit tests
+        working-directory: ghpatd
+        run: cargo test --locked

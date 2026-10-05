@@ -1,1 +1,4 @@
 target/
+release/ghpatd-linux-x86_64
+release/api.md
+release/SHA256SUMS

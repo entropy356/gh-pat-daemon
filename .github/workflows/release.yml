@@ -4,111 +4,122 @@ on:
   push:
     branches:
       - main
-      - "arena/**"
+    # 纯文档改动不触发构建；tags 与 workflow_dispatch 不受 paths-ignore 影响
+    paths-ignore:
+      - "docs/**"
+      - "README.md"
+      - "LICENSE"
+      - ".gitignore"
     tags:
       - "v*"
   workflow_dispatch:
 
-permissions:
-  contents: write
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
+    name: Build, test and publish ghpatd
     runs-on: ubuntu-latest
-    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Check if Rust rebuild is needed
-        id: check_rebuild
-        run: |
-          if [ -x ./release/ghpatd-linux-x86_64 ] && (cd release && sha256sum -c SHA256SUMS >/dev/null 2>&1); then
-            CHANGED=$(git diff --name-only HEAD~1 HEAD -- ghpatd/ 2>/dev/null || echo "rebuild")
-            if [ -z "$CHANGED" ]; then
-              echo "needed=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          echo "needed=true" >> "$GITHUB_OUTPUT"
+      - name: Install Rust toolchain with musl target
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          workspaces: ghpatd
 
       - name: Install system dependencies (musl-tools & age)
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools age file
 
-      - name: Install Rust toolchain with musl target
-        if: steps.check_rebuild.outputs.needed == 'true'
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-unknown-linux-musl
+      - name: Read project version from Cargo.toml
+        id: version
+        run: |
+          VERSION="$(grep -m1 '^version' ghpatd/Cargo.toml | sed 's/^version *= *"\(.*\)"/\1/')"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "ghpatd version: ${VERSION}"
 
-      - name: Run unit tests (A2)
-        if: steps.check_rebuild.outputs.needed == 'true'
+      - name: Run unit tests
         working-directory: ghpatd
-        run: cargo test
+        run: cargo test --locked
 
-      - name: Build static musl release binary (A1)
-        if: steps.check_rebuild.outputs.needed == 'true'
+      - name: Build static musl release binary
         working-directory: ghpatd
         env:
           RUSTFLAGS: "-D warnings"
-        run: cargo build --release --target x86_64-unknown-linux-musl
+        run: cargo build --release --locked --target x86_64-unknown-linux-musl
 
-      - name: Stage release binary & verify static-pie (A4)
+      - name: Stage release binary & verify static-pie
         run: |
-          if [ "${{ steps.check_rebuild.outputs.needed }}" = "true" ]; then
-            cp ghpatd/target/x86_64-unknown-linux-musl/release/ghpatd ./release/ghpatd-linux-x86_64
-          fi
+          cp ghpatd/target/x86_64-unknown-linux-musl/release/ghpatd ./release/ghpatd-linux-x86_64
           chmod +x ./release/ghpatd-linux-x86_64
           file ./release/ghpatd-linux-x86_64
           file ./release/ghpatd-linux-x86_64 | grep -E "static-pie linked|statically linked"
           file ./release/ghpatd-linux-x86_64 | grep "stripped"
           ldd ./release/ghpatd-linux-x86_64 2>&1 || true
 
-      - name: Run integration test suite (A3)
+      - name: Run integration test suite
         run: bash ./release/run_tests.sh ./release/ghpatd-linux-x86_64
 
       - name: Generate and verify SHA256SUMS
         working-directory: release
         run: |
-          sha256sum ghpatd-linux-x86_64 run_tests.sh > SHA256SUMS
+          cp ../docs/usage/API.md ./api.md
+          sha256sum ghpatd-linux-x86_64 api.md run_tests.sh > SHA256SUMS
           cat SHA256SUMS
           sha256sum -c SHA256SUMS
 
-      - name: Commit release artifacts to branch
-        if: github.ref_type == 'branch'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f release/ghpatd-linux-x86_64 release/SHA256SUMS
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(release): build ghpatd-linux-x86_64 and update SHA256SUMS [skip ci]"
-            git push origin HEAD:${GITHUB_REF_NAME}
-          fi
+      # 非发布运行（arena 分支 / 手动触发）产物走 Actions artifact，不回写 git、不碰 Release
+      - name: Upload build artifacts
+        if: github.ref_type == 'branch' && github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ghpatd-linux-x86_64
+          path: |
+            release/ghpatd-linux-x86_64
+            release/api.md
+            release/run_tests.sh
+            release/SHA256SUMS
+          retention-days: 14
+          if-no-files-found: error
 
-      - name: Publish or update GitHub Release v0.0.2
+      # 仅 tag 推送或 main 分支推送/手动触发时发布，杜绝 arena 分支覆盖线上 Release
+      - name: Publish or update GitHub Release
+        if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cp docs/usage/API.md /tmp/api.md
-          cat release/RELEASE_NOTES.md > /tmp/release-notes.md
-          cat <<'EOF' >> /tmp/release-notes.md
-
-          ## SHA256SUMS
-
-          ```text
-          EOF
-          (cd /tmp && sha256sum "$GITHUB_WORKSPACE/release/ghpatd-linux-x86_64" api.md "$GITHUB_WORKSPACE/release/run_tests.sh" | sed "s|$GITHUB_WORKSPACE/release/||g") >> /tmp/release-notes.md
-          echo '```' >> /tmp/release-notes.md
-          if gh release view v0.0.2 >/dev/null 2>&1; then
-            gh release edit v0.0.2 --title "ghpatd v0.0.2" --notes-file /tmp/release-notes.md
-            gh release upload v0.0.2 ./release/ghpatd-linux-x86_64 /tmp/api.md ./release/run_tests.sh ./release/SHA256SUMS --clobber
+          TAG="v${{ steps.version.outputs.version }}"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          # 发布说明 = RELEASE_NOTES.md + 统一口径的 SHA256SUMS（与上传资产完全一致）
+          {
+            cat release/RELEASE_NOTES.md
+            echo ""
+            echo "## SHA256SUMS"
+            echo ""
+            echo '```text'
+            cat release/SHA256SUMS
+            echo '```'
+          } > /tmp/release-notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "ghpatd ${TAG}" --notes-file /tmp/release-notes.md
+            gh release upload "$TAG" ./release/ghpatd-linux-x86_64 ./release/api.md ./release/run_tests.sh ./release/SHA256SUMS --clobber
           else
-            gh release create v0.0.2 ./release/ghpatd-linux-x86_64 /tmp/api.md ./release/run_tests.sh ./release/SHA256SUMS \
-              --target "$(git rev-parse HEAD)" \
-              --title "ghpatd v0.0.2" \
+            gh release create "$TAG" ./release/ghpatd-linux-x86_64 ./release/api.md ./release/run_tests.sh ./release/SHA256SUMS \
+              --target "$GITHUB_SHA" \
+              --title "ghpatd ${TAG}" \
               --notes-file /tmp/release-notes.md
           fi
