@@ -31,6 +31,7 @@ jobs:
       - name: Install Rust toolchain with musl target
         uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # stable
         with:
+          toolchain: stable
           targets: x86_64-unknown-linux-musl
 
       - name: Cache cargo build
