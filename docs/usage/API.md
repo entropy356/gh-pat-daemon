@@ -23,7 +23,6 @@
 | 选项 | 默认值 | 说明 |
 |---|---|---|
 | `--sock <PATH>` | `${XDG_RUNTIME_DIR:-/tmp/ghpatd-$UID}/ghpatd.sock` | 覆盖 Unix Socket 路径（支持置于任意子命令前后） |
-| `--json` | 关闭 | `start` / `status` / `set-token` / `stop` 以 JSON 输出结果（供脚本与 AI Agent 机器解析，见 §2.3） |
 | `-h, --help` | — | 打印帮助信息 |
 | `-V, --version` | — | 打印版本号（`ghpatd 0.0.2`） |
 
@@ -34,27 +33,6 @@
 | `GHPATD_SOCK` | `client` / `cred-helper` / `daemon` | 指定 socket 路径（优先级低于 `--sock`，高于 `XDG_RUNTIME_DIR`） |
 | `XDG_RUNTIME_DIR` | `client` / `cred-helper` | 未指定 `--sock` 与 `GHPATD_SOCK` 时，默认使用 `$XDG_RUNTIME_DIR/ghpatd.sock` |
 | `GH_REPO` | `client`（`repo`/`pr`/`issue`） | 默认目标仓库（`OWNER/REPO`），优先级低于 `-R/--repo`，高于本地 `git remote` |
-
-### 2.3 `--json` 机器可读输出（AI Agent 友好）
-
-`--json` 为全局选项，作用于生命周期命令。人类可读文本走 `stdout`（错误同时走 `stderr`），JSON 模式下一律走 `stdout`，退出码语义不变：
-
-```bash
-ghpatd --json start
-# {"ok":true,"pubkey":"age1...","pid":1234,"socket":"/run/user/1000/ghpatd.sock","state":"ready"}
-
-ghpatd --json status
-# {"state":"ready"} 或 {"state":"armed","fingerprint":"ghp_…9xYz"}
-
-ghpatd --json set-token <<'EOF' ... EOF
-# 成功: {"ok":true,"state":"armed","login":"octocat","scopes":["repo","read:org"],"fingerprint":"ghp_…9xYz"}
-# 失败: {"ok":false,"code":"TOKEN_INVALID","message":"token 无效（401），..."}
-
-ghpatd --json stop
-# {"ok":true,"state":"destroyed"}
-```
-
-错误对象统一为 `{"ok":false,"code":"<错误码>","message":"<含下一步动作的提示>"}`，`code` 与 §错误表一致，Agent 可据此程序化分支处理。
 
 ---
 
@@ -76,7 +54,6 @@ ghpatd start [--foreground] [--user-name <NAME>] [--user-email <EMAIL>]
   age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
   daemon 已启动 (pid 1234, socket: /tmp/ghpatd-1000/ghpatd.sock)
   状态: READY（等待 token 注入）
-  下一步: 把上面 age1... 公钥发给用户，等待 age -r <公钥> -a 加密的密文后执行 ghpatd set-token（stdin 注入）
   ```
 - **退出码**：成功 `0`；已在运行（`DAEMON_ALREADY_RUNNING`）或超时/失败 `1`。
 
@@ -93,10 +70,6 @@ EOF
 ```
 
 - **输入格式**：仅接受 `stdin`（不接受文件路径参数），自动兼容 ASCII armored（`age -a`）与二进制密文。
-- **输入容错（AI Agent 粘贴场景）**：stdin 内容经过清洗后再解密——
-  - 若包含 ASCII armored 块，自动截取 `-----BEGIN AGE ENCRYPTED FILE-----` 至 `-----END AGE ENCRYPTED FILE-----` 的完整块，**块前后的 markdown 代码围栏（\`\`\`）、说明文字等杂质会被忽略**；
-  - 若为 base64 文本（可能被终端/聊天窗口折行、带缩进或尾随换行），自动去除全部空白；
-  - 二进制密文仅去除首尾空白后透传。
 - **失败语义**：若密文损坏、公钥不匹配、使用密码短语加密（非 `-r` 公钥模式）或 GitHub 返回 `401`，注入被拒绝，**daemon 原有状态与已注入的旧 PAT 保持不变**。
 - **退出码**：成功 `0`；失败 `1`。
 
@@ -252,21 +225,21 @@ ghpatd api <ENDPOINT> [--method GET|POST|PUT|PATCH|DELETE] [--field KEY=VALUE]..
 | `set_token` | `enc_b64` | `{"login": "...", "scopes": ["..."], "fingerprint": "..."}` | 传入 base64 编码的 age 密文并校验注入 |
 | `get_pat` | `host`, `protocol` | `{"username": "x-access-token", "password": "<PAT>"}` | 仅供 `cred-helper` 获取凭据（走 `Zeroizing` 手工序列化） |
 | `gh` | `args`（可选 `repo`） | `{"stdout": "...", "stderr": "...", "exit_code": 0}` | 在 daemon 内执行 `gh`/`api` 子命令 |
-| `shutdown` | — | `{"ok": true}` | 先删除 socket 文件，再写回响应（保证客户端 `stop` 返回时 socket 必已删除），随后清零敏感页并退出进程 |
+| `shutdown` | — | `{"ok": true}` | 写回响应后立即清零敏感页、删除 socket 并退出进程 |
 
 ### 6.2 错误码清单
 
-| 错误码 (`error.code`) | 触发条件 | 客户端标准提示文案（均附下一步动作） |
+| 错误码 (`error.code`) | 触发条件 | 客户端标准提示文案 |
 |---|---|---|
-| `DAEMON_NOT_RUNNING` | Socket 不存在或无法连接 | `✘ daemon 未运行（DAEMON_NOT_RUNNING）。下一步: 执行 ghpatd start` |
-| `DAEMON_ALREADY_RUNNING` | `start` 时探测到已有存活 daemon | `✘ daemon 已在运行（DAEMON_ALREADY_RUNNING）。如需重新开始: 先执行 ghpatd stop` |
-| `START_TIMEOUT` | `start` 等待子进程就绪管道超过 5s | `✘ daemon 启动超时（START_TIMEOUT）。下一步: 检查磁盘与内存后重试 ghpatd start` |
-| `NO_TOKEN` | 未注入 PAT 时调用 `gh` 或 `get_pat` | `✘ PAT 未注入（NO_TOKEN）。下一步: 通过 stdin 注入密文: ghpatd set-token <<'EOF' ... EOF` |
-| `NOT_RECIPIENT_FORMAT` | 密文为 passphrase 模式而非 `-r` 公钥加密 | `✘ 仅支持 age -r 公钥加密（NOT_RECIPIENT_FORMAT）。下一步: 在本地用 age -r <公钥> -a 加密（不要用 passphrase 模式）` |
-| `DECRYPT_FAILED` | 密文损坏、公钥不匹配或明文为空/非 UTF-8 | `✘ 解密失败：密文与公钥不匹配或已损坏（DECRYPT_FAILED）。下一步: 执行 ghpatd pubkey 核对公钥，在本地重新 age -r <公钥> -a 加密后注入` |
+| `DAEMON_NOT_RUNNING` | Socket 不存在或无法连接 | `✘ daemon 未运行，请先执行 ghpatd start` |
+| `DAEMON_ALREADY_RUNNING` | `start` 时探测到已有存活 daemon | `✘ daemon 已在运行（DAEMON_ALREADY_RUNNING）` |
+| `START_TIMEOUT` | `start` 等待子进程就绪管道超过 5s | `✘ daemon 启动超时，exit(1)` |
+| `NO_TOKEN` | 未注入 PAT 时调用 `gh` 或 `get_pat` | `✘ PAT 未注入，请执行 ghpatd set-token（stdin）` |
+| `NOT_RECIPIENT_FORMAT` | 密文为 passphrase 模式而非 `-r` 公钥加密 | `✘ 仅支持 age -r 公钥加密（NOT_RECIPIENT_FORMAT）` |
+| `DECRYPT_FAILED` | 密文损坏、公钥不匹配或明文为空/非 UTF-8 | `✘ 解密失败：密文与公钥不匹配或已损坏` |
 | `PAT_TOO_LONG` | 解密后 PAT 超过 256 字节上限 | `✘ PAT_TOO_LONG: PAT 超长（>256 字节）` |
-| `TOKEN_INVALID` | `set-token` 校验 `GET /user` 返回 401 | `✘ token 无效（401），注入被拒绝；保留原状态。下一步: 确认 PAT 有效且未过期后重新加密注入` |
+| `TOKEN_INVALID` | `set-token` 校验 `GET /user` 返回 401 | `✘ token 无效（401），注入被拒绝；保留原状态` |
 | `API_ERROR` | GitHub API 网络错误或返回非预期状态码 | `✘ API_ERROR: ...` |
 | `HOST_NOT_ALLOWED` | `get_pat` 非 `https` 或非 `github.com` 域 | `✘ HOST_NOT_ALLOWED: 不为 <host> 代理凭据` |
-| `REMOTE_NOT_HTTPS` | 本地 git `origin` 为 SSH URL 而非 HTTPS | `✘ ghpatd 仅支持 HTTPS remote（REMOTE_NOT_HTTPS）。下一步: 执行 git remote set-url origin https://github.com/<owner>/<repo>.git，或用 -R OWNER/REPO 指定仓库` |
+| `REMOTE_NOT_HTTPS` | 本地 git `origin` 为 SSH URL 而非 HTTPS | `✘ ghpatd 仅支持 HTTPS remote` |
 | `BAD_REQUEST` | JSON 格式非法、未知命令或单行超过 64 KiB | `✘ BAD_REQUEST: ...` |

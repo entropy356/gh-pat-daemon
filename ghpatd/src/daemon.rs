@@ -309,9 +309,6 @@ async fn handle_conn(
                 let resp = dispatch(&state, &req, peer_pid).await;
                 let shutdown = req.cmd == "shutdown" && matches!(&resp, Outbound::Plain(r) if r.ok);
                 if shutdown {
-                    // 竞态修复：先 unlink socket 再回写响应，
-                    // 保证客户端 stop 返回时 socket 必已删除（测试 §7 断言）
-                    let _ = std::fs::remove_file(&state.sock_path);
                     // P0-1：响应写回为 best-effort；客户端在写回前断开也必须销毁
                     if write_outbound(&mut writer, &resp).await.is_err() {
                         log_audit(&state.sock_path, "shutdown", "resp_write_failed_destroy_anyway", peer_pid, None);

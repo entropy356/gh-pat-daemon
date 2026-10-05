@@ -14,7 +14,7 @@
    ```
 
 3. **云端注入与销毁**  
-   - 注入密文：`ghpatd set-token <<'EOF' ... EOF`（密文前后若夹杂 markdown 围栏/说明文字会自动清洗；加 `--json` 可获得机器可读输出）
+   - 注入密文：`ghpatd set-token <<'EOF' ... EOF`
    - 执行 Git：`ghpatd wrap -- git pull / push / clone ...`
    - 执行 GitHub 操作：`ghpatd pr / issue / repo / api / auth ...`
    - 用完销毁：`ghpatd stop`
