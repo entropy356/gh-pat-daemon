@@ -6,7 +6,10 @@ use serde_json::Value;
 
 /// 对 JSON 值应用 jq 过滤器，返回全部输出值
 pub fn apply(filter_src: &str, input: &Value) -> Result<Vec<Value>, String> {
-    let program = File { code: filter_src, path: () };
+    let program = File {
+        code: filter_src,
+        path: (),
+    };
     let loader = Loader::new(jaq_std::defs().chain(jaq_json::defs()));
     let arena = Arena::default();
     let modules = loader

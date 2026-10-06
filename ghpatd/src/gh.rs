@@ -10,10 +10,18 @@ pub struct GhResult {
 
 impl GhResult {
     fn ok(stdout: String) -> Self {
-        GhResult { stdout, stderr: String::new(), exit_code: 0 }
+        GhResult {
+            stdout,
+            stderr: String::new(),
+            exit_code: 0,
+        }
     }
     fn fail(stderr: String, code: i32) -> Self {
-        GhResult { stdout: String::new(), stderr, exit_code: code }
+        GhResult {
+            stdout: String::new(),
+            stderr,
+            exit_code: code,
+        }
     }
 }
 
@@ -29,7 +37,10 @@ fn headers(pat: &str) -> reqwest::header::HeaderMap {
     if let Ok(v) = reqwest::header::HeaderValue::from_str(&format!("Bearer {pat}")) {
         h.insert(reqwest::header::AUTHORIZATION, v);
     }
-    h.insert(reqwest::header::ACCEPT, "application/vnd.github+json".parse().unwrap());
+    h.insert(
+        reqwest::header::ACCEPT,
+        "application/vnd.github+json".parse().unwrap(),
+    );
     h.insert(reqwest::header::USER_AGENT, "ghpatd".parse().unwrap());
     h.insert("X-GitHub-Api-Version", "2022-11-28".parse().unwrap());
     h
@@ -112,7 +123,9 @@ fn api_err(status: u16, val: &Value) -> String {
 
 /// 宽度对齐（按字符计；CJK 字符按 2 列计）
 fn display_width(s: &str) -> usize {
-    s.chars().map(|c| if (c as u32) > 0x2E7F { 2 } else { 1 }).sum()
+    s.chars()
+        .map(|c| if (c as u32) > 0x2E7F { 2 } else { 1 })
+        .sum()
 }
 
 fn pad(s: &str, w: usize) -> String {
@@ -156,17 +169,32 @@ fn render_table(headers: &[&str], rows: &[Vec<String>]) -> String {
 fn pr_row(p: &Value) -> Vec<String> {
     vec![
         format!("#{}", p.get("number").and_then(|v| v.as_u64()).unwrap_or(0)),
-        p.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        p.pointer("/head/ref").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        p.get("state").and_then(|v| v.as_str()).unwrap_or("").to_uppercase(),
+        p.get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        p.pointer("/head/ref")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        p.get("state")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_uppercase(),
     ]
 }
 
 fn issue_row(i: &Value) -> Vec<String> {
     vec![
         format!("#{}", i.get("number").and_then(|v| v.as_u64()).unwrap_or(0)),
-        i.get("title").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-        i.get("state").and_then(|v| v.as_str()).unwrap_or("").to_uppercase(),
+        i.get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        i.get("state")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_uppercase(),
     ]
 }
 
@@ -187,7 +215,14 @@ fn map_json_field(item: &Value, field: &str) -> Option<Value> {
 }
 
 const JSON_FIELDS: &[&str] = &[
-    "number", "title", "state", "headRefName", "baseRefName", "url", "author", "createdAt",
+    "number",
+    "title",
+    "state",
+    "headRefName",
+    "baseRefName",
+    "url",
+    "author",
+    "createdAt",
     "isDraft",
 ];
 
@@ -201,11 +236,7 @@ fn pretty(v: &Value) -> String {
 }
 
 /// 入口：执行 gh 子命令（args 已含子命令名，如 ["pr","list",...], repo 为 client 解析结果）
-pub async fn execute(
-    ctx: &ApiCtx<'_>,
-    args: &[String],
-    repo: Option<&str>,
-) -> GhResult {
+pub async fn execute(ctx: &ApiCtx<'_>, args: &[String], repo: Option<&str>) -> GhResult {
     match execute_inner(ctx, args, repo).await {
         Ok(r) => r,
         Err(msg) => {
@@ -301,7 +332,12 @@ async fn cmd_api(ctx: &ApiCtx<'_>, rest: &[String]) -> Result<GhResult, String> 
     } else {
         let map: serde_json::Map<String, Value> = pairs
             .iter()
-            .map(|(k, v)| (k.clone(), serde_json::from_str(v).unwrap_or(Value::String(v.clone()))))
+            .map(|(k, v)| {
+                (
+                    k.clone(),
+                    serde_json::from_str(v).unwrap_or(Value::String(v.clone())),
+                )
+            })
             .collect();
         Some(Value::Object(map))
     };
@@ -330,12 +366,17 @@ async fn cmd_auth(ctx: &ApiCtx<'_>) -> Result<GhResult, String> {
 }
 
 // ---- repo view / repo list ----
-async fn cmd_repo(ctx: &ApiCtx<'_>, rest: &[String], repo: Option<&str>) -> Result<GhResult, String> {
+async fn cmd_repo(
+    ctx: &ApiCtx<'_>,
+    rest: &[String],
+    repo: Option<&str>,
+) -> Result<GhResult, String> {
     match rest.first().map(|s| s.as_str()) {
         Some("view") => {
             let target = rest.get(1).cloned().or_else(|| repo.map(|r| r.to_string()));
             let target = target.ok_or("repo view 缺少仓库参数")?;
-            let (status, val) = api_call(ctx, "GET", &format!("{API_BASE}/repos/{target}"), None).await?;
+            let (status, val) =
+                api_call(ctx, "GET", &format!("{API_BASE}/repos/{target}"), None).await?;
             if status != 200 {
                 return Err(api_err(status, &val));
             }
@@ -351,10 +392,12 @@ async fn cmd_repo(ctx: &ApiCtx<'_>, rest: &[String], repo: Option<&str>) -> Resu
             ] {
                 out.push_str(&format!(
                     "{label}: {}\n",
-                    val.get(k).map(|v| match v {
-                        Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    }).unwrap_or_else(|| "-".into())
+                    val.get(k)
+                        .map(|v| match v {
+                            Value::String(s) => s.clone(),
+                            other => other.to_string(),
+                        })
+                        .unwrap_or_else(|| "-".into())
                 ));
             }
             Ok(GhResult::ok(out))
@@ -365,7 +408,11 @@ async fn cmd_repo(ctx: &ApiCtx<'_>, rest: &[String], repo: Option<&str>) -> Resu
             while i < rest.len() {
                 if rest[i] == "--limit" {
                     i += 1;
-                    limit = rest.get(i).ok_or("--limit 缺参数")?.parse().map_err(|_| "--limit 需要整数")?;
+                    limit = rest
+                        .get(i)
+                        .ok_or("--limit 缺参数")?
+                        .parse()
+                        .map_err(|_| "--limit 需要整数")?;
                 }
                 i += 1;
             }
@@ -380,19 +427,34 @@ async fn cmd_repo(ctx: &ApiCtx<'_>, rest: &[String], repo: Option<&str>) -> Resu
                 .iter()
                 .map(|r| {
                     vec![
-                        r.get("full_name").and_then(|v| v.as_str()).unwrap_or("").into(),
-                        r.get("description").and_then(|v| v.as_str()).unwrap_or("").into(),
-                        r.get("updated_at").and_then(|v| v.as_str()).unwrap_or("").into(),
+                        r.get("full_name")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .into(),
+                        r.get("description")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .into(),
+                        r.get("updated_at")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .into(),
                     ]
                 })
                 .collect();
-            Ok(GhResult::ok(render_table(&["NAME", "DESCRIPTION", "UPDATED"], &rows)))
+            Ok(GhResult::ok(render_table(
+                &["NAME", "DESCRIPTION", "UPDATED"],
+                &rows,
+            )))
         }
         other => Err(format!("未知 repo 子命令: {}", other.unwrap_or(""))),
     }
 }
 
-fn common_list_opts(rest: &[String], start: usize) -> Result<(String, usize, Option<String>, Option<String>), String> {
+fn common_list_opts(
+    rest: &[String],
+    start: usize,
+) -> Result<(String, usize, Option<String>, Option<String>), String> {
     let mut state = String::new();
     let mut limit = 30usize;
     let mut jsonf: Option<String> = None;
@@ -406,7 +468,11 @@ fn common_list_opts(rest: &[String], start: usize) -> Result<(String, usize, Opt
             }
             "--limit" | "-L" => {
                 i += 1;
-                limit = rest.get(i).ok_or("--limit 缺参数")?.parse().map_err(|_| "--limit 需要整数")?;
+                limit = rest
+                    .get(i)
+                    .ok_or("--limit 缺参数")?
+                    .parse()
+                    .map_err(|_| "--limit 需要整数")?;
             }
             "--json" => {
                 i += 1;
@@ -465,7 +531,11 @@ async fn cmd_pr(ctx: &ApiCtx<'_>, rest: &[String], repo: Option<&str>) -> Result
         Some("list") => {
             let target = need_repo(repo)?;
             let (state, limit, jsonf, jq) = common_list_opts(rest, 1)?;
-            let state = if state.is_empty() { "open".into() } else { state };
+            let state = if state.is_empty() {
+                "open".into()
+            } else {
+                state
+            };
             let items = api_list(
                 ctx,
                 &format!("/repos/{target}/pulls"),
@@ -474,30 +544,54 @@ async fn cmd_pr(ctx: &ApiCtx<'_>, rest: &[String], repo: Option<&str>) -> Result
             )
             .await?;
             if jsonf.is_some() {
-                return Ok(GhResult::ok(json_output(&items, jsonf.as_deref(), jq.as_deref())?));
+                return Ok(GhResult::ok(json_output(
+                    &items,
+                    jsonf.as_deref(),
+                    jq.as_deref(),
+                )?));
             }
             let rows: Vec<Vec<String>> = items.iter().map(pr_row).collect();
-            Ok(GhResult::ok(render_table(&["NUMBER", "TITLE", "BRANCH", "STATE"], &rows)))
+            Ok(GhResult::ok(render_table(
+                &["NUMBER", "TITLE", "BRANCH", "STATE"],
+                &rows,
+            )))
         }
         Some("view") => {
             let target = need_repo(repo)?;
             let num = rest.get(1).ok_or("pr view 缺少编号")?;
-            let (status, val) =
-                api_call(ctx, "GET", &format!("{API_BASE}/repos/{target}/pulls/{num}"), None).await?;
+            let (status, val) = api_call(
+                ctx,
+                "GET",
+                &format!("{API_BASE}/repos/{target}/pulls/{num}"),
+                None,
+            )
+            .await?;
             if status != 200 {
                 return Err(api_err(status, &val));
             }
             let mut out = String::new();
-            out.push_str(&format!("title: {}\n", val.get("title").and_then(|v| v.as_str()).unwrap_or("")));
-            out.push_str(&format!("state: {}\n", val.get("state").and_then(|v| v.as_str()).unwrap_or("")));
+            out.push_str(&format!(
+                "title: {}\n",
+                val.get("title").and_then(|v| v.as_str()).unwrap_or("")
+            ));
+            out.push_str(&format!(
+                "state: {}\n",
+                val.get("state").and_then(|v| v.as_str()).unwrap_or("")
+            ));
             out.push_str(&format!(
                 "author: {}\n",
-                val.pointer("/user/login").and_then(|v| v.as_str()).unwrap_or("")
+                val.pointer("/user/login")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
             ));
             out.push_str(&format!(
                 "branch: {} -> {}\n",
-                val.pointer("/head/ref").and_then(|v| v.as_str()).unwrap_or(""),
-                val.pointer("/base/ref").and_then(|v| v.as_str()).unwrap_or("")
+                val.pointer("/head/ref")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(""),
+                val.pointer("/base/ref")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
             ));
             out.push_str(&format!(
                 "url: {}\n",
@@ -514,10 +608,22 @@ async fn cmd_pr(ctx: &ApiCtx<'_>, rest: &[String], repo: Option<&str>) -> Result
             let mut i = 1;
             while i < rest.len() {
                 match rest[i].as_str() {
-                    "--title" | "-t" => { i += 1; title = rest.get(i).ok_or("--title 缺参数")?.clone(); }
-                    "--head" | "-H" => { i += 1; head = rest.get(i).ok_or("--head 缺参数")?.clone(); }
-                    "--base" | "-B" => { i += 1; base = rest.get(i).ok_or("--base 缺参数")?.clone(); }
-                    "--body" | "-b" => { i += 1; body = rest.get(i).ok_or("--body 缺参数")?.clone(); }
+                    "--title" | "-t" => {
+                        i += 1;
+                        title = rest.get(i).ok_or("--title 缺参数")?.clone();
+                    }
+                    "--head" | "-H" => {
+                        i += 1;
+                        head = rest.get(i).ok_or("--head 缺参数")?.clone();
+                    }
+                    "--base" | "-B" => {
+                        i += 1;
+                        base = rest.get(i).ok_or("--base 缺参数")?.clone();
+                    }
+                    "--body" | "-b" => {
+                        i += 1;
+                        body = rest.get(i).ok_or("--body 缺参数")?.clone();
+                    }
                     o => return Err(format!("未知参数: {o}")),
                 }
                 i += 1;
@@ -577,12 +683,20 @@ async fn cmd_pr(ctx: &ApiCtx<'_>, rest: &[String], repo: Option<&str>) -> Result
 }
 
 // ---- issue list / view / create ----
-async fn cmd_issue(ctx: &ApiCtx<'_>, rest: &[String], repo: Option<&str>) -> Result<GhResult, String> {
+async fn cmd_issue(
+    ctx: &ApiCtx<'_>,
+    rest: &[String],
+    repo: Option<&str>,
+) -> Result<GhResult, String> {
     match rest.first().map(|s| s.as_str()) {
         Some("list") => {
             let target = need_repo(repo)?;
             let (state, limit, jsonf, jq) = common_list_opts(rest, 1)?;
-            let state = if state.is_empty() { "open".into() } else { state };
+            let state = if state.is_empty() {
+                "open".into()
+            } else {
+                state
+            };
             let mut items = api_list(
                 ctx,
                 &format!("/repos/{target}/issues"),
@@ -593,25 +707,45 @@ async fn cmd_issue(ctx: &ApiCtx<'_>, rest: &[String], repo: Option<&str>) -> Res
             // issues API 会包含 PR，过滤掉（gh 行为一致）
             items.retain(|i| i.get("pull_request").is_none());
             if jsonf.is_some() {
-                return Ok(GhResult::ok(json_output(&items, jsonf.as_deref(), jq.as_deref())?));
+                return Ok(GhResult::ok(json_output(
+                    &items,
+                    jsonf.as_deref(),
+                    jq.as_deref(),
+                )?));
             }
             let rows: Vec<Vec<String>> = items.iter().map(issue_row).collect();
-            Ok(GhResult::ok(render_table(&["NUMBER", "TITLE", "STATE"], &rows)))
+            Ok(GhResult::ok(render_table(
+                &["NUMBER", "TITLE", "STATE"],
+                &rows,
+            )))
         }
         Some("view") => {
             let target = need_repo(repo)?;
             let num = rest.get(1).ok_or("issue view 缺少编号")?;
-            let (status, val) =
-                api_call(ctx, "GET", &format!("{API_BASE}/repos/{target}/issues/{num}"), None).await?;
+            let (status, val) = api_call(
+                ctx,
+                "GET",
+                &format!("{API_BASE}/repos/{target}/issues/{num}"),
+                None,
+            )
+            .await?;
             if status != 200 {
                 return Err(api_err(status, &val));
             }
             let mut out = String::new();
-            out.push_str(&format!("title: {}\n", val.get("title").and_then(|v| v.as_str()).unwrap_or("")));
-            out.push_str(&format!("state: {}\n", val.get("state").and_then(|v| v.as_str()).unwrap_or("")));
+            out.push_str(&format!(
+                "title: {}\n",
+                val.get("title").and_then(|v| v.as_str()).unwrap_or("")
+            ));
+            out.push_str(&format!(
+                "state: {}\n",
+                val.get("state").and_then(|v| v.as_str()).unwrap_or("")
+            ));
             out.push_str(&format!(
                 "author: {}\n",
-                val.pointer("/user/login").and_then(|v| v.as_str()).unwrap_or("")
+                val.pointer("/user/login")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
             ));
             Ok(GhResult::ok(out))
         }
@@ -622,8 +756,14 @@ async fn cmd_issue(ctx: &ApiCtx<'_>, rest: &[String], repo: Option<&str>) -> Res
             let mut i = 1;
             while i < rest.len() {
                 match rest[i].as_str() {
-                    "--title" | "-t" => { i += 1; title = rest.get(i).ok_or("--title 缺参数")?.clone(); }
-                    "--body" | "-b" => { i += 1; body = rest.get(i).ok_or("--body 缺参数")?.clone(); }
+                    "--title" | "-t" => {
+                        i += 1;
+                        title = rest.get(i).ok_or("--title 缺参数")?.clone();
+                    }
+                    "--body" | "-b" => {
+                        i += 1;
+                        body = rest.get(i).ok_or("--body 缺参数")?.clone();
+                    }
                     o => return Err(format!("未知参数: {o}")),
                 }
                 i += 1;
